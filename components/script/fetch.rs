@@ -5,11 +5,12 @@
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use base::id::WebViewId;
 use ipc_channel::ipc;
 use net_traits::policy_container::RequestPolicyContainer;
 use net_traits::request::{
-    CorsSettings, CredentialsMode, Destination, Referrer, Request as NetTraitsRequest,
-    RequestBuilder, RequestId, RequestMode, ServiceWorkersMode,
+    CorsSettings, CredentialsMode, Destination, InsecureRequestsPolicy, Referrer,
+    Request as NetTraitsRequest, RequestBuilder, RequestId, RequestMode, ServiceWorkersMode,
 };
 use net_traits::{
     cancel_async_fetch, CoreResourceMsg, CoreResourceThread, FetchChannels, FetchMetadata,
@@ -26,7 +27,7 @@ use crate::dom::bindings::codegen::Bindings::ResponseBinding::Response_Binding::
 use crate::dom::bindings::error::Error;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::{Trusted, TrustedPromise};
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::trace::RootedTraceableBox;
 use crate::dom::globalscope::GlobalScope;
@@ -113,13 +114,14 @@ fn request_init_from_request(request: NetTraitsRequest) -> RequestBuilder {
         referrer: request.referrer.clone(),
         referrer_policy: request.referrer_policy,
         pipeline_id: request.pipeline_id,
-        target_browsing_context_id: request.target_browsing_context_id,
+        target_webview_id: request.target_webview_id,
         redirect_mode: request.redirect_mode,
         integrity_metadata: request.integrity_metadata.clone(),
         url_list: vec![],
         parser_metadata: request.parser_metadata,
         initiator: request.initiator,
         policy_container: request.policy_container,
+        insecure_requests_policy: request.insecure_requests_policy,
         https_state: request.https_state,
         response_tainting: request.response_tainting,
         crash: None,
@@ -148,8 +150,8 @@ pub(crate) fn Fetch(
     //         with input and init as arguments. If this throws an exception, reject p with it and return p.
     let request = match Request::Constructor(global, None, can_gc, input, init) {
         Err(e) => {
-            response.error_stream(e.clone());
-            promise.reject_error(e);
+            response.error_stream(e.clone(), can_gc);
+            promise.reject_error(e, can_gc);
             return promise;
         },
         Ok(r) => {
@@ -221,11 +223,17 @@ impl FetchResponseListener for FetchContext {
         match fetch_metadata {
             // Step 4.1
             Err(_) => {
-                promise.reject_error(Error::Type("Network error occurred".to_string()));
+                promise.reject_error(
+                    Error::Type("Network error occurred".to_string()),
+                    CanGc::note(),
+                );
                 self.fetch_promise = Some(TrustedPromise::new(promise));
                 let response = self.response_object.root();
                 response.set_type(DOMResponseType::Error, CanGc::note());
-                response.error_stream(Error::Type("Network error occurred".to_string()));
+                response.error_stream(
+                    Error::Type("Network error occurred".to_string()),
+                    CanGc::note(),
+                );
                 return;
             },
             // Step 4.2
@@ -264,13 +272,13 @@ impl FetchResponseListener for FetchContext {
         }
 
         // Step 4.3
-        promise.resolve_native(&self.response_object.root());
+        promise.resolve_native(&self.response_object.root(), CanGc::note());
         self.fetch_promise = Some(TrustedPromise::new(promise));
     }
 
     fn process_response_chunk(&mut self, _: RequestId, chunk: Vec<u8>) {
         let response = self.response_object.root();
-        response.stream_chunk(chunk);
+        response.stream_chunk(chunk, CanGc::note());
     }
 
     fn process_response_eof(
@@ -280,7 +288,7 @@ impl FetchResponseListener for FetchContext {
     ) {
         let response = self.response_object.root();
         let _ac = enter_realm(&*response);
-        response.finish();
+        response.finish(CanGc::note());
         // TODO
         // ... trailerObject is not supported in Servo yet.
     }
@@ -366,13 +374,15 @@ pub(crate) fn load_whole_resource(
 
 /// <https://html.spec.whatwg.org/multipage/#create-a-potential-cors-request>
 pub(crate) fn create_a_potential_cors_request(
+    webview_id: Option<WebViewId>,
     url: ServoUrl,
     destination: Destination,
     cors_setting: Option<CorsSettings>,
     same_origin_fallback: Option<bool>,
     referrer: Referrer,
+    insecure_requests_policy: InsecureRequestsPolicy,
 ) -> RequestBuilder {
-    RequestBuilder::new(url, referrer)
+    RequestBuilder::new(webview_id, url, referrer)
         // https://html.spec.whatwg.org/multipage/#create-a-potential-cors-request
         // Step 1
         .mode(match cors_setting {
@@ -389,4 +399,5 @@ pub(crate) fn create_a_potential_cors_request(
         // Step 5
         .destination(destination)
         .use_url_credentials(true)
+        .insecure_requests_policy(insecure_requests_policy)
 }

@@ -7,8 +7,7 @@ use std::cell::RefCell;
 
 use arrayvec::ArrayVec;
 use dom_struct::dom_struct;
-use euclid::default::Size2D;
-use ipc_channel::ipc;
+use ipc_channel::ipc::{self, IpcSharedMemory};
 use script_layout_interface::HTMLCanvasDataSource;
 use webgpu::swapchain::WebGPUContextId;
 use webgpu::wgc::id;
@@ -20,6 +19,7 @@ use webrender_api::ImageKey;
 
 use super::gpuconvert::convert_texture_descriptor;
 use super::gputexture::GPUTexture;
+use crate::canvas_context::CanvasContext;
 use crate::conversions::Convert;
 use crate::dom::bindings::codegen::Bindings::GPUCanvasContextBinding::GPUCanvasContextMethods;
 use crate::dom::bindings::codegen::Bindings::WebGPUBinding::GPUTexture_Binding::GPUTextureMethods;
@@ -30,27 +30,15 @@ use crate::dom::bindings::codegen::Bindings::WebGPUBinding::{
 };
 use crate::dom::bindings::codegen::UnionTypes::HTMLCanvasElementOrOffscreenCanvas;
 use crate::dom::bindings::error::{Error, Fallible};
-use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{DomRoot, LayoutDom, MutNullableDom};
 use crate::dom::bindings::str::USVString;
 use crate::dom::bindings::weakref::WeakRef;
 use crate::dom::document::WebGPUContextsMap;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::htmlcanvaselement::{HTMLCanvasElement, LayoutCanvasRenderingContextHelpers};
-use crate::dom::node::{Node, NodeDamage, NodeTraits};
+use crate::dom::node::NodeTraits;
 use crate::script_runtime::CanGc;
-
-impl HTMLCanvasElementOrOffscreenCanvas {
-    fn size(&self) -> Size2D<u64> {
-        match self {
-            HTMLCanvasElementOrOffscreenCanvas::HTMLCanvasElement(canvas) => {
-                canvas.get_size().cast()
-            },
-            HTMLCanvasElementOrOffscreenCanvas::OffscreenCanvas(canvas) => canvas.get_size(),
-        }
-    }
-}
 
 /// <https://gpuweb.github.io/gpuweb/#supported-context-formats>
 fn supported_context_format(format: GPUTextureFormat) -> bool {
@@ -144,6 +132,7 @@ impl GPUCanvasContext {
         global: &GlobalScope,
         canvas: &HTMLCanvasElement,
         channel: WebGPU,
+        can_gc: CanGc,
     ) -> DomRoot<Self> {
         let document = canvas.owner_document();
         let this = reflect_dom_object(
@@ -154,7 +143,7 @@ impl GPUCanvasContext {
                 document.webgpu_contexts(),
             )),
             global,
-            CanGc::note(),
+            can_gc,
         );
         this.webgpu_contexts
             .borrow_mut()
@@ -259,43 +248,24 @@ impl GPUCanvasContext {
             );
         }
     }
-
-    fn size(&self) -> Size2D<u64> {
-        self.canvas.size()
-    }
 }
 
-// public methods for canvas handling
-// these methods should probably be behind trait for all canvases
-impl GPUCanvasContext {
-    pub(crate) fn context_id(&self) -> WebGPUContextId {
+impl CanvasContext for GPUCanvasContext {
+    type ID = WebGPUContextId;
+
+    #[cfg_attr(crown, allow(crown::unrooted_must_root))] // Crown is wrong here #35570
+    fn context_id(&self) -> WebGPUContextId {
         self.context_id
     }
 
-    pub(crate) fn mark_as_dirty(&self) {
-        if let HTMLCanvasElementOrOffscreenCanvas::HTMLCanvasElement(canvas) = &self.canvas {
-            canvas.upcast::<Node>().dirty(NodeDamage::OtherNodeDamage);
-        }
-    }
-
-    pub(crate) fn onscreen(&self) -> bool {
-        match self.canvas {
-            HTMLCanvasElementOrOffscreenCanvas::HTMLCanvasElement(ref canvas) => {
-                canvas.upcast::<Node>().is_connected()
-            },
-            // FIXME(#34628): Handle this properly
-            HTMLCanvasElementOrOffscreenCanvas::OffscreenCanvas(_) => false,
-        }
-    }
-
     /// <https://gpuweb.github.io/gpuweb/#abstract-opdef-updating-the-rendering-of-a-webgpu-canvas>
-    pub(crate) fn update_rendering_of_webgpu_canvas(&self) {
+    fn update_rendering(&self) {
         // Step 1
         self.expire_current_texture();
     }
 
     /// <https://gpuweb.github.io/gpuweb/#abstract-opdef-update-the-canvas-size>
-    pub(crate) fn resize(&self) {
+    fn resize(&self) {
         // Step 1
         self.replace_drawing_buffer();
         // Step 2
@@ -305,6 +275,28 @@ impl GPUCanvasContext {
             self.texture_descriptor
                 .replace(Some(self.texture_descriptor_for_canvas(configuration)));
         }
+    }
+
+    /// <https://gpuweb.github.io/gpuweb/#ref-for-abstract-opdef-get-a-copy-of-the-image-contents-of-a-context%E2%91%A5>
+    fn get_image_data_as_shared_memory(&self) -> Option<IpcSharedMemory> {
+        // 1. Return a copy of the image contents of context.
+        Some(if self.drawing_buffer.borrow().cleared {
+            IpcSharedMemory::from_byte(0, self.size().area() as usize * 4)
+        } else {
+            let (sender, receiver) = ipc::channel().unwrap();
+            self.channel
+                .0
+                .send(WebGPURequest::GetImage {
+                    context_id: self.context_id,
+                    sender,
+                })
+                .unwrap();
+            receiver.recv().unwrap()
+        })
+    }
+
+    fn canvas(&self) -> HTMLCanvasElementOrOffscreenCanvas {
+        self.canvas.clone()
     }
 }
 

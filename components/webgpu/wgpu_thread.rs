@@ -531,6 +531,9 @@ impl WGPU {
                             log::error!("Error occured in SwapChainPresent: {e:?}");
                         }
                     },
+                    WebGPURequest::GetImage { context_id, sender } => {
+                        sender.send(self.get_image(context_id)).unwrap()
+                    },
                     WebGPURequest::ValidateTextureDescriptor {
                         device_id,
                         texture_id,
@@ -751,7 +754,7 @@ impl WGPU {
                         device_id: _device_id,
                     } => {
                         let global = &self.global;
-                        let (pass, error) = global.command_encoder_create_compute_pass(
+                        let (pass, error) = global.command_encoder_begin_compute_pass(
                             command_encoder_id,
                             &ComputePassDescriptor {
                                 label,
@@ -905,7 +908,7 @@ impl WGPU {
                             occlusion_query_set: None,
                         };
                         let (pass, error) =
-                            global.command_encoder_create_render_pass(command_encoder_id, desc);
+                            global.command_encoder_begin_render_pass(command_encoder_id, desc);
                         assert!(
                             self.render_passes
                                 .insert(render_pass_id, Pass::new(pass, error.is_none()))

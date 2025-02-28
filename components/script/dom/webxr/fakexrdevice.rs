@@ -29,7 +29,7 @@ use crate::dom::bindings::codegen::Bindings::XRSessionBinding::XRVisibilityState
 use crate::dom::bindings::codegen::Bindings::XRViewBinding::XREye;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::refcounted::TrustedPromise;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::fakexrinputcontroller::{init_to_mock_buttons, FakeXRInputController};
 use crate::dom::globalscope::GlobalScope;
@@ -59,11 +59,12 @@ impl FakeXRDevice {
     pub(crate) fn new(
         global: &GlobalScope,
         sender: IpcSender<MockDeviceMsg>,
+        can_gc: CanGc,
     ) -> DomRoot<FakeXRDevice> {
         reflect_dom_object(
             Box::new(FakeXRDevice::new_inherited(sender)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 
@@ -299,7 +300,8 @@ impl FakeXRDeviceMethods<crate::DomTypeHolder> for FakeXRDevice {
         let global = self.global();
         let _ = self.sender.send(MockDeviceMsg::AddInputSource(init));
 
-        let controller = FakeXRInputController::new(&global, self.sender.clone(), id);
+        let controller =
+            FakeXRInputController::new(&global, self.sender.clone(), id, CanGc::note());
 
         Ok(controller)
     }

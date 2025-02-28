@@ -8,7 +8,7 @@ use canvas_traits::webgl::{webgl_channel, WebGLCommand};
 use dom_struct::dom_struct;
 
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::webglobject::WebGLObject;
 use crate::dom::webglrenderingcontext::{Operation, WebGLRenderingContext};
@@ -36,7 +36,7 @@ impl WebGLTransformFeedback {
         }
     }
 
-    pub(crate) fn new(context: &WebGLRenderingContext) -> DomRoot<Self> {
+    pub(crate) fn new(context: &WebGLRenderingContext, can_gc: CanGc) -> DomRoot<Self> {
         let (sender, receiver) = webgl_channel().unwrap();
         context.send_command(WebGLCommand::CreateTransformFeedback(sender));
         let id = receiver.recv().unwrap();
@@ -44,7 +44,7 @@ impl WebGLTransformFeedback {
         reflect_dom_object(
             Box::new(WebGLTransformFeedback::new_inherited(context, id)),
             &*context.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 }

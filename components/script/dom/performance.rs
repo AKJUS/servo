@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use base::cross_process_instant::CrossProcessInstant;
 use dom_struct::dom_struct;
-use time_03::Duration;
+use time::Duration;
 
 use super::bindings::refcounted::Trusted;
 use crate::dom::bindings::cell::DomRefCell;
@@ -18,7 +18,7 @@ use crate::dom::bindings::codegen::Bindings::PerformanceBinding::{
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::num::Finite;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::eventtarget::EventTarget;
@@ -78,10 +78,10 @@ impl PerformanceEntryList {
             .entries
             .iter()
             .filter(|e| {
-                name.as_ref().map_or(true, |name_| *e.name() == *name_) &&
+                name.as_ref().is_none_or(|name_| *e.name() == *name_) &&
                     entry_type
                         .as_ref()
-                        .map_or(true, |type_| *e.entry_type() == *type_)
+                        .is_none_or(|type_| *e.entry_type() == *type_)
             })
             .cloned()
             .collect::<Vec<DomRoot<PerformanceEntry>>>();
@@ -168,11 +168,12 @@ impl Performance {
     pub(crate) fn new(
         global: &GlobalScope,
         navigation_start: CrossProcessInstant,
+        can_gc: CanGc,
     ) -> DomRoot<Performance> {
         reflect_dom_object(
             Box::new(Performance::new_inherited(navigation_start)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 
@@ -357,7 +358,7 @@ impl Performance {
 
         // Step 7.3.
         for o in observers.iter() {
-            o.notify();
+            o.notify(CanGc::note());
         }
     }
 
@@ -446,7 +447,7 @@ impl PerformanceMethods<crate::DomTypeHolder> for Performance {
 
     // https://w3c.github.io/navigation-timing/#dom-performance-navigation
     fn Navigation(&self) -> DomRoot<PerformanceNavigation> {
-        PerformanceNavigation::new(&self.global())
+        PerformanceNavigation::new(&self.global(), CanGc::note())
     }
 
     // https://dvcs.w3.org/hg/webperf/raw-file/tip/specs/HighResolutionTime/Overview.html#dom-performance-now

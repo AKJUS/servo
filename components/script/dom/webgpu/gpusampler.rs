@@ -11,7 +11,7 @@ use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::WebGPUBinding::{
     GPUSamplerDescriptor, GPUSamplerMethods,
 };
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::USVString;
 use crate::dom::globalscope::GlobalScope;
@@ -57,6 +57,7 @@ impl GPUSampler {
         compare_enable: bool,
         sampler: WebGPUSampler,
         label: USVString,
+        can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
             Box::new(GPUSampler::new_inherited(
@@ -67,7 +68,7 @@ impl GPUSampler {
                 label,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -81,6 +82,7 @@ impl GPUSampler {
     pub(crate) fn create(
         device: &GPUDevice,
         descriptor: &GPUSamplerDescriptor,
+        can_gc: CanGc,
     ) -> DomRoot<GPUSampler> {
         let sampler_id = device.global().wgpu_id_hub().create_sampler_id();
         let compare_enable = descriptor.compare.is_some();
@@ -120,6 +122,7 @@ impl GPUSampler {
             compare_enable,
             sampler,
             descriptor.parent.label.clone(),
+            can_gc,
         )
     }
 }

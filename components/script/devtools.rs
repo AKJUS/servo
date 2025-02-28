@@ -144,9 +144,7 @@ pub(crate) fn handle_get_children(
         Some(parent) => {
             let is_whitespace = |node: &NodeInfo| {
                 node.node_type == NodeConstants::TEXT_NODE &&
-                    node.node_value
-                        .as_ref()
-                        .map_or(true, |v| v.trim().is_empty())
+                    node.node_value.as_ref().is_none_or(|v| v.trim().is_empty())
             };
 
             let inline: Vec<_> = parent
@@ -162,23 +160,24 @@ pub(crate) fn handle_get_children(
                 })
                 .collect();
 
-            let children: Vec<_> = parent
-                .children()
-                .enumerate()
-                .filter_map(|(i, child)| {
-                    // Filter whitespace only text nodes that are not inline level
-                    // https://firefox-source-docs.mozilla.org/devtools-user/page_inspector/how_to/examine_and_edit_html/index.html#whitespace-only-text-nodes
-                    let prev_inline = i > 0 && inline[i - 1];
-                    let next_inline = i < inline.len() - 1 && inline[i + 1];
+            let mut children = vec![];
+            if let Some(shadow_root) = parent.downcast::<Element>().and_then(Element::shadow_root) {
+                children.push(shadow_root.upcast::<Node>().summarize());
+            }
+            let children_iter = parent.children().enumerate().filter_map(|(i, child)| {
+                // Filter whitespace only text nodes that are not inline level
+                // https://firefox-source-docs.mozilla.org/devtools-user/page_inspector/how_to/examine_and_edit_html/index.html#whitespace-only-text-nodes
+                let prev_inline = i > 0 && inline[i - 1];
+                let next_inline = i < inline.len() - 1 && inline[i + 1];
 
-                    let info = child.summarize();
-                    if !is_whitespace(&info) {
-                        return Some(info);
-                    }
+                let info = child.summarize();
+                if !is_whitespace(&info) {
+                    return Some(info);
+                }
 
-                    (prev_inline && next_inline).then_some(info)
-                })
-                .collect();
+                (prev_inline && next_inline).then_some(info)
+            });
+            children.extend(children_iter);
 
             reply.send(Some(children)).unwrap();
         },
@@ -197,9 +196,11 @@ pub(crate) fn handle_get_attribute_style(
         Some(found_node) => found_node,
     };
 
-    let elem = node
-        .downcast::<HTMLElement>()
-        .expect("This should be an HTMLElement");
+    let Some(elem) = node.downcast::<HTMLElement>() else {
+        // the style attribute only works on html elements
+        reply.send(None).unwrap();
+        return;
+    };
     let style = elem.Style();
 
     let msg = (0..style.Length())

@@ -13,7 +13,7 @@ use crate::dom::bindings::codegen::Bindings::XRFrameBinding::XRFrameMethods;
 use crate::dom::bindings::error::Error;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::num::Finite;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::xrhittestresult::XRHitTestResult;
@@ -49,11 +49,16 @@ impl XRFrame {
         }
     }
 
-    pub(crate) fn new(global: &GlobalScope, session: &XRSession, data: Frame) -> DomRoot<XRFrame> {
+    pub(crate) fn new(
+        global: &GlobalScope,
+        session: &XRSession,
+        data: Frame,
+        can_gc: CanGc,
+    ) -> DomRoot<XRFrame> {
         reflect_dom_object(
             Box::new(XRFrame::new_inherited(session, data)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 
@@ -193,7 +198,7 @@ impl XRFrameMethods<crate::DomTypeHolder> for XRFrame {
             .hit_test_results
             .iter()
             .filter(|r| r.id == source.id())
-            .map(|r| XRHitTestResult::new(&self.global(), *r, self))
+            .map(|r| XRHitTestResult::new(&self.global(), *r, self, CanGc::note()))
             .collect()
     }
 

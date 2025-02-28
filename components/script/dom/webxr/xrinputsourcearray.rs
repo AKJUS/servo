@@ -8,7 +8,7 @@ use webxr_api::{InputId, InputSource};
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::XRInputSourceArrayBinding::XRInputSourceArrayMethods;
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::event::Event;
 use crate::dom::globalscope::GlobalScope;
@@ -31,11 +31,11 @@ impl XRInputSourceArray {
         }
     }
 
-    pub(crate) fn new(global: &GlobalScope) -> DomRoot<XRInputSourceArray> {
+    pub(crate) fn new(global: &GlobalScope, can_gc: CanGc) -> DomRoot<XRInputSourceArray> {
         reflect_dom_object(
             Box::new(XRInputSourceArray::new_inherited()),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 

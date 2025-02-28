@@ -6,7 +6,7 @@ use canvas_traits::webgl::{TexFormat, WebGLVersion};
 use dom_struct::dom_struct;
 
 use super::{WebGLExtension, WebGLExtensionSpec, WebGLExtensions};
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::webglrenderingcontext::WebGLRenderingContext;
 use crate::dom::webgltexture::{TexCompression, TexCompressionValidation};
@@ -27,11 +27,11 @@ impl WEBGLCompressedTextureS3TC {
 
 impl WebGLExtension for WEBGLCompressedTextureS3TC {
     type Extension = WEBGLCompressedTextureS3TC;
-    fn new(ctx: &WebGLRenderingContext) -> DomRoot<WEBGLCompressedTextureS3TC> {
+    fn new(ctx: &WebGLRenderingContext, can_gc: CanGc) -> DomRoot<WEBGLCompressedTextureS3TC> {
         reflect_dom_object(
             Box::new(WEBGLCompressedTextureS3TC::new_inherited()),
             &*ctx.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 

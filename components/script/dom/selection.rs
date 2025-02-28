@@ -12,7 +12,7 @@ use crate::dom::bindings::codegen::Bindings::SelectionBinding::SelectionMethods;
 use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::document::Document;
@@ -48,11 +48,11 @@ impl Selection {
         }
     }
 
-    pub(crate) fn new(document: &Document) -> DomRoot<Selection> {
+    pub(crate) fn new(document: &Document, can_gc: CanGc) -> DomRoot<Selection> {
         reflect_dom_object(
             Box::new(Selection::new_inherited(document)),
             &*document.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 

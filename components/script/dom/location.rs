@@ -57,12 +57,8 @@ impl Location {
         }
     }
 
-    pub(crate) fn new(window: &Window) -> DomRoot<Location> {
-        reflect_dom_object(
-            Box::new(Location::new_inherited(window)),
-            window,
-            CanGc::note(),
-        )
+    pub(crate) fn new(window: &Window, can_gc: CanGc) -> DomRoot<Location> {
+        reflect_dom_object(Box::new(Location::new_inherited(window)), window, can_gc)
     }
 
     /// Navigate the relevant `Document`'s browsing context.
@@ -129,6 +125,7 @@ impl Location {
             referrer,
             referrer_policy,
             None, // Top navigation doesn't inherit secure context
+            Some(source_document.insecure_requests_policy()),
         );
         self.window
             .load_url(history_handling, reload_triggered, load_data, can_gc);

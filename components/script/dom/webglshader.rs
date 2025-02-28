@@ -16,7 +16,7 @@ use mozangle::shaders::{BuiltInResources, CompileOptions, Output, ShaderValidato
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::webgl_extensions::ext::extfragdepth::EXTFragDepth;
@@ -73,18 +73,19 @@ impl WebGLShader {
         receiver
             .recv()
             .unwrap()
-            .map(|id| WebGLShader::new(context, id, shader_type))
+            .map(|id| WebGLShader::new(context, id, shader_type, CanGc::note()))
     }
 
     pub(crate) fn new(
         context: &WebGLRenderingContext,
         id: WebGLShaderId,
         shader_type: u32,
+        can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
             Box::new(WebGLShader::new_inherited(context, id, shader_type)),
             &*context.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 }

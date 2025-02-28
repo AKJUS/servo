@@ -10,7 +10,7 @@ use servo_media::streams::MediaStreamType;
 use crate::dom::bindings::cell::{DomRefCell, Ref};
 use crate::dom::bindings::codegen::Bindings::MediaStreamBinding::MediaStreamMethods;
 use crate::dom::bindings::error::Fallible;
-use crate::dom::bindings::reflector::{reflect_dom_object_with_proto, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object_with_proto, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::eventtarget::EventTarget;
@@ -57,7 +57,7 @@ impl MediaStream {
         can_gc: CanGc,
     ) -> DomRoot<MediaStream> {
         let this = Self::new(global, can_gc);
-        let track = MediaStreamTrack::new(global, id, ty);
+        let track = MediaStreamTrack::new(global, id, ty, can_gc);
         this.AddTrack(&track);
         this
     }

@@ -8,7 +8,7 @@ use crate::dom::bindings::codegen::Bindings::PerformanceNavigationBinding::{
     PerformanceNavigationConstants, PerformanceNavigationMethods,
 };
 use crate::dom::bindings::codegen::Bindings::WindowBinding::Window_Binding::WindowMethods;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::globalscope::GlobalScope;
 use crate::script_runtime::CanGc;
@@ -25,11 +25,11 @@ impl PerformanceNavigation {
         }
     }
 
-    pub(crate) fn new(global: &GlobalScope) -> DomRoot<PerformanceNavigation> {
+    pub(crate) fn new(global: &GlobalScope, can_gc: CanGc) -> DomRoot<PerformanceNavigation> {
         reflect_dom_object(
             Box::new(PerformanceNavigation::new_inherited()),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }

@@ -17,7 +17,7 @@ use profile_traits::time::{
     TimerMetadataFrameType, TimerMetadataReflowType,
 };
 use servo_config::opts::OutputOptions;
-use time_03::Duration;
+use time::Duration;
 
 use crate::trace_dump::TraceDump;
 
@@ -102,9 +102,9 @@ impl Formattable for ProfilerCategory {
             ProfilerCategory::ScriptConstellationMsg => "Script Constellation Msg",
             ProfilerCategory::ScriptDevtoolsMsg => "Script Devtools Msg",
             ProfilerCategory::ScriptDocumentEvent => "Script Document Event",
-            ProfilerCategory::ScriptDomEvent => "Script Dom Event",
             ProfilerCategory::ScriptEvaluate => "Script JS Evaluate",
             ProfilerCategory::ScriptFileRead => "Script File Read",
+            ProfilerCategory::ScriptFontLoading => "Script Font Loading",
             ProfilerCategory::ScriptHistoryEvent => "Script History Event",
             ProfilerCategory::ScriptImageCacheMsg => "Script Image Cache Msg",
             ProfilerCategory::ScriptInputEvent => "Script Input Event",

@@ -20,7 +20,8 @@ use js::panic::maybe_resume_unwind;
 use js::rust::{HandleValue, MutableHandleValue, ParentRuntime};
 use net_traits::policy_container::PolicyContainer;
 use net_traits::request::{
-    CredentialsMode, Destination, ParserMetadata, RequestBuilder as NetRequestInit,
+    CredentialsMode, Destination, InsecureRequestsPolicy, ParserMetadata,
+    RequestBuilder as NetRequestInit,
 };
 use net_traits::IpcSend;
 use script_traits::WorkerGlobalScopeInit;
@@ -58,7 +59,7 @@ use crate::dom::workernavigator::WorkerNavigator;
 use crate::fetch;
 use crate::messaging::{CommonScriptMsg, ScriptEventLoopReceiver, ScriptEventLoopSender};
 use crate::realms::{enter_realm, InRealm};
-use crate::script_runtime::{CanGc, JSContext, Runtime};
+use crate::script_runtime::{CanGc, JSContext, JSContextHelper, Runtime};
 use crate::task::TaskCanceller;
 use crate::timers::{IsInterval, TimerCallback};
 
@@ -78,7 +79,6 @@ pub(crate) fn prepare_workerscope_init(
         pipeline_id: global.pipeline_id(),
         origin: global.origin().immutable().clone(),
         creation_url: global.creation_url().clone(),
-        is_headless: global.is_headless(),
         user_agent: global.get_user_agent(),
         inherited_secure_context: Some(global.is_secure_context()),
     };
@@ -127,6 +127,9 @@ pub(crate) struct WorkerGlobalScope {
     /// Timers are handled in the service worker event loop.
     #[no_trace]
     timer_scheduler: RefCell<TimerScheduler>,
+
+    #[no_trace]
+    insecure_requests_policy: InsecureRequestsPolicy,
 }
 
 impl WorkerGlobalScope {
@@ -140,6 +143,7 @@ impl WorkerGlobalScope {
         devtools_receiver: Receiver<DevtoolScriptControlMsg>,
         closing: Arc<AtomicBool>,
         #[cfg(feature = "webgpu")] gpu_id_hub: Arc<IdentityHub>,
+        insecure_requests_policy: InsecureRequestsPolicy,
     ) -> Self {
         // Install a pipeline-namespace in the current thread.
         PipelineNamespace::auto_install();
@@ -160,7 +164,6 @@ impl WorkerGlobalScope {
                 MutableOrigin::new(init.origin),
                 init.creation_url,
                 runtime.microtask_queue.clone(),
-                init.is_headless,
                 init.user_agent,
                 #[cfg(feature = "webgpu")]
                 gpu_id_hub,
@@ -181,7 +184,13 @@ impl WorkerGlobalScope {
             navigation_start: CrossProcessInstant::now(),
             performance: Default::default(),
             timer_scheduler: RefCell::default(),
+            insecure_requests_policy,
         }
+    }
+
+    /// Returns a policy value that should be used by fetches initiated by this worker.
+    pub(crate) fn insecure_requests_policy(&self) -> InsecureRequestsPolicy {
+        self.insecure_requests_policy
     }
 
     /// Clear various items when the worker event-loop shuts-down.
@@ -258,7 +267,7 @@ impl WorkerGlobalScopeMethods<crate::DomTypeHolder> for WorkerGlobalScope {
     // https://html.spec.whatwg.org/multipage/#dom-workerglobalscope-location
     fn Location(&self) -> DomRoot<WorkerLocation> {
         self.location
-            .or_init(|| WorkerLocation::new(self, self.worker_url.borrow().clone()))
+            .or_init(|| WorkerLocation::new(self, self.worker_url.borrow().clone(), CanGc::note()))
     }
 
     // https://html.spec.whatwg.org/multipage/#handler-workerglobalscope-onerror
@@ -278,13 +287,18 @@ impl WorkerGlobalScopeMethods<crate::DomTypeHolder> for WorkerGlobalScope {
         rooted!(in(self.runtime.borrow().as_ref().unwrap().cx()) let mut rval = UndefinedValue());
         for url in urls {
             let global_scope = self.upcast::<GlobalScope>();
-            let request = NetRequestInit::new(url.clone(), global_scope.get_referrer())
-                .destination(Destination::Script)
-                .credentials_mode(CredentialsMode::Include)
-                .parser_metadata(ParserMetadata::NotParserInserted)
-                .use_url_credentials(true)
-                .origin(global_scope.origin().immutable().clone())
-                .pipeline_id(Some(self.upcast::<GlobalScope>().pipeline_id()));
+            let request = NetRequestInit::new(
+                global_scope.webview_id(),
+                url.clone(),
+                global_scope.get_referrer(),
+            )
+            .destination(Destination::Script)
+            .credentials_mode(CredentialsMode::Include)
+            .parser_metadata(ParserMetadata::NotParserInserted)
+            .use_url_credentials(true)
+            .origin(global_scope.origin().immutable().clone())
+            .insecure_requests_policy(self.insecure_requests_policy())
+            .pipeline_id(Some(self.upcast::<GlobalScope>().pipeline_id()));
 
             let (url, source) = match fetch::load_whole_resource(
                 request,
@@ -326,7 +340,8 @@ impl WorkerGlobalScopeMethods<crate::DomTypeHolder> for WorkerGlobalScope {
 
     // https://html.spec.whatwg.org/multipage/#dom-worker-navigator
     fn Navigator(&self) -> DomRoot<WorkerNavigator> {
-        self.navigator.or_init(|| WorkerNavigator::new(self))
+        self.navigator
+            .or_init(|| WorkerNavigator::new(self, CanGc::note()))
     }
 
     // https://html.spec.whatwg.org/multipage/#dfn-Crypto
@@ -430,7 +445,7 @@ impl WorkerGlobalScopeMethods<crate::DomTypeHolder> for WorkerGlobalScope {
     fn Performance(&self) -> DomRoot<Performance> {
         self.performance.or_init(|| {
             let global_scope = self.upcast::<GlobalScope>();
-            Performance::new(global_scope, self.navigation_start)
+            Performance::new(global_scope, self.navigation_start, CanGc::note())
         })
     }
 
@@ -485,7 +500,12 @@ impl WorkerGlobalScope {
                     println!("evaluate_script failed");
                     unsafe {
                         let ar = enter_realm(self);
-                        report_pending_exception(cx, true, InRealm::Entered(&ar), can_gc);
+                        report_pending_exception(
+                            JSContext::from_ptr(cx),
+                            true,
+                            InRealm::Entered(&ar),
+                            can_gc,
+                        );
                     }
                 }
             },

@@ -9,7 +9,7 @@ use style::stylesheets::{CssRuleType, MediaRule};
 use style_traits::ToCss;
 
 use crate::dom::bindings::codegen::Bindings::CSSMediaRuleBinding::CSSMediaRuleMethods;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::cssconditionrule::CSSConditionRule;
@@ -43,11 +43,12 @@ impl CSSMediaRule {
         window: &Window,
         parent_stylesheet: &CSSStyleSheet,
         mediarule: Arc<MediaRule>,
+        can_gc: CanGc,
     ) -> DomRoot<CSSMediaRule> {
         reflect_dom_object(
             Box::new(CSSMediaRule::new_inherited(parent_stylesheet, mediarule)),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 
@@ -57,6 +58,7 @@ impl CSSMediaRule {
                 self.global().as_window(),
                 self.cssconditionrule.parent_stylesheet(),
                 self.mediarule.media_queries.clone(),
+                CanGc::note(),
             )
         })
     }

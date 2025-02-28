@@ -9,7 +9,7 @@ use crate::dom::bindings::codegen::Bindings::TextTrackListBinding::TextTrackList
 use crate::dom::bindings::codegen::UnionTypes::VideoTrackOrAudioTrackOrTextTrack;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::event::Event;
@@ -33,11 +33,15 @@ impl TextTrackList {
         }
     }
 
-    pub(crate) fn new(window: &Window, tracks: &[&TextTrack]) -> DomRoot<TextTrackList> {
+    pub(crate) fn new(
+        window: &Window,
+        tracks: &[&TextTrack],
+        can_gc: CanGc,
+    ) -> DomRoot<TextTrackList> {
         reflect_dom_object(
             Box::new(TextTrackList::new_inherited(tracks)),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 

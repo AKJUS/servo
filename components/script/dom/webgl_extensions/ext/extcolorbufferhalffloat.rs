@@ -6,7 +6,7 @@ use canvas_traits::webgl::WebGLVersion;
 use dom_struct::dom_struct;
 
 use super::{WebGLExtension, WebGLExtensionSpec, WebGLExtensions};
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::webgl_extensions::ext::oestexturehalffloat::OESTextureHalfFloat;
 use crate::dom::webglrenderingcontext::WebGLRenderingContext;
@@ -27,11 +27,11 @@ impl EXTColorBufferHalfFloat {
 
 impl WebGLExtension for EXTColorBufferHalfFloat {
     type Extension = EXTColorBufferHalfFloat;
-    fn new(ctx: &WebGLRenderingContext) -> DomRoot<EXTColorBufferHalfFloat> {
+    fn new(ctx: &WebGLRenderingContext, can_gc: CanGc) -> DomRoot<EXTColorBufferHalfFloat> {
         reflect_dom_object(
             Box::new(EXTColorBufferHalfFloat::new_inherited()),
             &*ctx.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 

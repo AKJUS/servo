@@ -11,7 +11,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use base::id::PipelineId;
+use base::id::{PipelineId, WebViewId};
 use content_security_policy as csp;
 use dom_struct::dom_struct;
 use encoding_rs::Encoding;
@@ -21,7 +21,8 @@ use js::jsval::UndefinedValue;
 use js::rust::{transform_str_to_source_text, CompileOptionsWrapper, HandleObject, Stencil};
 use net_traits::http_status::HttpStatus;
 use net_traits::request::{
-    CorsSettings, CredentialsMode, Destination, ParserMetadata, RequestBuilder, RequestId,
+    CorsSettings, CredentialsMode, Destination, InsecureRequestsPolicy, ParserMetadata,
+    RequestBuilder, RequestId,
 };
 use net_traits::{
     FetchMetadata, FetchResponseListener, Metadata, NetworkError, ResourceFetchTiming,
@@ -41,7 +42,7 @@ use crate::dom::bindings::codegen::Bindings::HTMLScriptElementBinding::HTMLScrip
 use crate::dom::bindings::codegen::Bindings::NodeBinding::NodeMethods;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::settings_stack::AutoEntryScript;
 use crate::dom::bindings::str::{DOMString, USVString};
@@ -343,8 +344,8 @@ fn finish_fetching_a_classic_script(
     let document = elem.owner_document();
 
     match script_kind {
-        ExternalScriptKind::Asap => document.asap_script_loaded(elem, load),
-        ExternalScriptKind::AsapInOrder => document.asap_in_order_script_loaded(elem, load),
+        ExternalScriptKind::Asap => document.asap_script_loaded(elem, load, can_gc),
+        ExternalScriptKind::AsapInOrder => document.asap_in_order_script_loaded(elem, load, can_gc),
         ExternalScriptKind::Deferred => document.deferred_script_loaded(elem, load),
         ExternalScriptKind::ParsingBlocking => {
             document.pending_parsing_blocking_script_loaded(elem, load, can_gc)
@@ -542,20 +543,24 @@ impl PreInvoke for ClassicContext {}
 /// Steps 1-2 of <https://html.spec.whatwg.org/multipage/#fetch-a-classic-script>
 // This function is also used to prefetch a script in `script::dom::servoparser::prefetch`.
 pub(crate) fn script_fetch_request(
+    webview_id: WebViewId,
     url: ServoUrl,
     cors_setting: Option<CorsSettings>,
     origin: ImmutableOrigin,
     pipeline_id: PipelineId,
     options: ScriptFetchOptions,
+    insecure_requests_policy: InsecureRequestsPolicy,
 ) -> RequestBuilder {
     // We intentionally ignore options' credentials_mode member for classic scripts.
     // The mode is initialized by create_a_potential_cors_request.
     create_a_potential_cors_request(
+        Some(webview_id),
         url,
         Destination::Script,
         cors_setting,
         None,
         options.referrer,
+        insecure_requests_policy,
     )
     .origin(origin)
     .pipeline_id(Some(pipeline_id))
@@ -576,11 +581,13 @@ fn fetch_a_classic_script(
     // Step 1, 2.
     let doc = script.owner_document();
     let request = script_fetch_request(
+        doc.webview_id(),
         url.clone(),
         cors_setting,
         doc.origin().immutable().clone(),
         script.global().pipeline_id(),
         options.clone(),
+        doc.insecure_requests_policy(),
     );
     let request = doc.prepare_request(request);
 
@@ -853,7 +860,7 @@ impl HTMLScriptElement {
                         doc.set_pending_parsing_blocking_script(self, Some(result));
                     } else {
                         // Step 27.i: otherwise.
-                        self.execute(result);
+                        self.execute(result, can_gc);
                     }
                 },
                 ScriptType::Module => {
@@ -910,7 +917,7 @@ impl HTMLScriptElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#execute-the-script-block>
-    pub(crate) fn execute(&self, result: ScriptResult) {
+    pub(crate) fn execute(&self, result: ScriptResult, can_gc: CanGc) {
         // Step 1.
         let doc = self.owner_document();
         if self.parser_inserted.get() && *doc != *self.parser_document {
@@ -921,7 +928,7 @@ impl HTMLScriptElement {
             // Step 2.
             Err(e) => {
                 warn!("error loading script {:?}", e);
-                self.dispatch_error_event(CanGc::note());
+                self.dispatch_error_event(can_gc);
                 return;
             },
 
@@ -960,12 +967,12 @@ impl HTMLScriptElement {
 
         match script.type_ {
             ScriptType::Classic => {
-                self.run_a_classic_script(&script, CanGc::note());
+                self.run_a_classic_script(&script, can_gc);
                 document.set_current_script(old_script.as_deref());
             },
             ScriptType::Module => {
                 assert!(document.GetCurrentScript().is_none());
-                self.run_a_module_script(&script, false, CanGc::note());
+                self.run_a_module_script(&script, false, can_gc);
             },
         }
 
@@ -976,7 +983,7 @@ impl HTMLScriptElement {
 
         // Step 6.
         if script.external {
-            self.dispatch_load_event(CanGc::note());
+            self.dispatch_load_event(can_gc);
         }
     }
 

@@ -20,7 +20,7 @@ use crate::dom::bindings::codegen::Bindings::ServiceWorkerBinding::{
 use crate::dom::bindings::error::{Error, ErrorResult};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::USVString;
 use crate::dom::bindings::structuredclone;
@@ -63,6 +63,7 @@ impl ServiceWorker {
         script_url: ServoUrl,
         scope_url: ServoUrl,
         worker_id: ServiceWorkerId,
+        can_gc: CanGc,
     ) -> DomRoot<ServiceWorker> {
         reflect_dom_object(
             Box::new(ServiceWorker::new_inherited(
@@ -71,7 +72,7 @@ impl ServiceWorker {
                 worker_id,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 

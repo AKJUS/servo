@@ -21,7 +21,7 @@ use crate::dom::bindings::trace::RootedTraceableBox;
 use crate::dom::dissimilaroriginlocation::DissimilarOriginLocation;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::windowproxy::WindowProxy;
-use crate::script_runtime::JSContext;
+use crate::script_runtime::{CanGc, JSContext};
 
 /// Represents a dissimilar-origin `Window` that exists in another script thread.
 ///
@@ -64,7 +64,6 @@ impl DissimilarOriginWindow {
                 // FIXME(nox): The microtask queue is probably not important
                 // here, but this whole DOM interface is a hack anyway.
                 global_to_clone_from.microtask_queue().clone(),
-                global_to_clone_from.is_headless(),
                 global_to_clone_from.get_user_agent(),
                 #[cfg(feature = "webgpu")]
                 global_to_clone_from.wgpu_id_hub(),
@@ -74,7 +73,7 @@ impl DissimilarOriginWindow {
             window_proxy: Dom::from_ref(window_proxy),
             location: Default::default(),
         });
-        unsafe { DissimilarOriginWindowBinding::Wrap(cx, win) }
+        unsafe { DissimilarOriginWindowBinding::Wrap::<crate::DomTypeHolder>(cx, win) }
     }
 
     pub(crate) fn window_proxy(&self) -> DomRoot<WindowProxy> {
@@ -194,7 +193,7 @@ impl DissimilarOriginWindowMethods<crate::DomTypeHolder> for DissimilarOriginWin
     // https://html.spec.whatwg.org/multipage/#dom-location
     fn Location(&self) -> DomRoot<DissimilarOriginLocation> {
         self.location
-            .or_init(|| DissimilarOriginLocation::new(self))
+            .or_init(|| DissimilarOriginLocation::new(self, CanGc::note()))
     }
 }
 

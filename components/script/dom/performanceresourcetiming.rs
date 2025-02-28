@@ -6,11 +6,11 @@ use base::cross_process_instant::CrossProcessInstant;
 use dom_struct::dom_struct;
 use net_traits::ResourceFetchTiming;
 use servo_url::ServoUrl;
-use time_03::Duration;
+use time::Duration;
 
 use crate::dom::bindings::codegen::Bindings::PerformanceBinding::DOMHighResTimeStamp;
 use crate::dom::bindings::codegen::Bindings::PerformanceResourceTimingBinding::PerformanceResourceTimingMethods;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::globalscope::GlobalScope;
@@ -159,6 +159,7 @@ impl PerformanceResourceTiming {
         initiator_type: InitiatorType,
         next_hop: Option<DOMString>,
         resource_timing: &ResourceFetchTiming,
+        can_gc: CanGc,
     ) -> DomRoot<PerformanceResourceTiming> {
         reflect_dom_object(
             Box::new(PerformanceResourceTiming::from_resource_timing(
@@ -168,7 +169,7 @@ impl PerformanceResourceTiming {
                 resource_timing,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 

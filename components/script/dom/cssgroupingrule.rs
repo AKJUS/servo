@@ -10,12 +10,13 @@ use style::stylesheets::{CssRuleType, CssRuleTypes, CssRules as StyleCssRules};
 use crate::dom::bindings::codegen::Bindings::CSSGroupingRuleBinding::CSSGroupingRuleMethods;
 use crate::dom::bindings::error::{ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::cssrule::CSSRule;
 use crate::dom::cssrulelist::{CSSRuleList, RulesSource};
 use crate::dom::cssstylesheet::CSSStyleSheet;
+use crate::script_runtime::CanGc;
 
 #[dom_struct]
 pub(crate) struct CSSGroupingRule {
@@ -45,6 +46,7 @@ impl CSSGroupingRule {
                 self.global().as_window(),
                 parent_stylesheet,
                 RulesSource::Rules(self.rules.clone()),
+                CanGc::note(),
             )
         })
     }
@@ -79,6 +81,7 @@ impl CSSGroupingRuleMethods<crate::DomTypeHolder> for CSSGroupingRule {
             index,
             containing_rule_types,
             parse_relative_rule_type,
+            CanGc::note(),
         )
     }
 

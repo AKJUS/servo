@@ -10,10 +10,9 @@ use std::default::Default;
 use std::ops::{Add, AddAssign, Range};
 
 use keyboard_types::{Key, KeyState, Modifiers, ShortcutMatcher};
-use script_traits::ScriptToConstellationChan;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::clipboard_provider::ClipboardProvider;
+use crate::clipboard_provider::{ClipboardProvider, EmbedderClipboardProvider};
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::EventBinding::Event_Binding::EventMethods;
 use crate::dom::bindings::inheritance::Castable;
@@ -891,20 +890,21 @@ impl<T: ClipboardProvider> TextInput<T> {
             })
             .shortcut(CMD_OR_CONTROL, 'X', || {
                 if let Some(text) = self.get_selection_text() {
-                    self.clipboard_provider.set_clipboard_contents(text);
+                    self.clipboard_provider.set_text(text);
                     self.delete_char(Direction::Backward);
                 }
                 KeyReaction::DispatchInput
             })
             .shortcut(CMD_OR_CONTROL, 'C', || {
                 if let Some(text) = self.get_selection_text() {
-                    self.clipboard_provider.set_clipboard_contents(text);
+                    self.clipboard_provider.set_text(text);
                 }
                 KeyReaction::DispatchInput
             })
             .shortcut(CMD_OR_CONTROL, 'V', || {
-                let contents = self.clipboard_provider.clipboard_contents();
-                self.insert_string(contents);
+                if let Ok(text_content) = self.clipboard_provider.get_text() {
+                    self.insert_string(text_content);
+                }
                 KeyReaction::DispatchInput
             })
             .shortcut(Modifiers::empty(), Key::Delete, || {
@@ -988,9 +988,20 @@ impl<T: ClipboardProvider> TextInput<T> {
         KeyReaction::DispatchInput
     }
 
+    pub(crate) fn handle_compositionupdate(&mut self, event: &CompositionEvent) -> KeyReaction {
+        let start = self.selection_start_offset().0;
+        self.insert_string(event.data());
+        self.set_selection_range(
+            start as u32,
+            (start + event.data().len_utf8().0) as u32,
+            SelectionDirection::Forward,
+        );
+        KeyReaction::DispatchInput
+    }
+
     /// Whether the content is empty.
     pub(crate) fn is_empty(&self) -> bool {
-        self.lines.len() <= 1 && self.lines.first().map_or(true, |line| line.is_empty())
+        self.lines.len() <= 1 && self.lines.first().is_none_or(|line| line.is_empty())
     }
 
     /// The length of the content in bytes.
@@ -1140,8 +1151,8 @@ impl<T: ClipboardProvider> TextInput<T> {
 
     fn paste_contents(&mut self, drag_data_store: &DragDataStore) {
         for item in drag_data_store.iter_item_list() {
-            if let Kind::Text(string) = item {
-                self.insert_string(string.data());
+            if let Kind::Text { data, .. } = item {
+                self.insert_string(data.to_string());
             }
         }
     }
@@ -1150,7 +1161,7 @@ impl<T: ClipboardProvider> TextInput<T> {
 /// <https://www.w3.org/TR/clipboard-apis/#clipboard-actions> step 3
 pub(crate) fn handle_text_clipboard_action(
     owning_node: &impl NodeTraits,
-    textinput: &DomRefCell<TextInput<ScriptToConstellationChan>>,
+    textinput: &DomRefCell<TextInput<EmbedderClipboardProvider>>,
     event: &ClipboardEvent,
     can_gc: CanGc,
 ) -> bool {
@@ -1167,10 +1178,7 @@ pub(crate) fn handle_text_clipboard_action(
 
             // Step 3.1 Copy the selected contents, if any, to the clipboard
             if let Some(text) = selection {
-                textinput
-                    .borrow_mut()
-                    .clipboard_provider
-                    .set_clipboard_contents(text);
+                textinput.borrow_mut().clipboard_provider.set_text(text);
             }
 
             // Step 3.2 Fire a clipboard event named clipboardchange
@@ -1184,10 +1192,7 @@ pub(crate) fn handle_text_clipboard_action(
             // Step 3.1 If there is a selection in an editable context where cutting is enabled, then
             if let Some(text) = selection {
                 // Step 3.1.1 Copy the selected contents, if any, to the clipboard
-                textinput
-                    .borrow_mut()
-                    .clipboard_provider
-                    .set_clipboard_contents(text);
+                textinput.borrow_mut().clipboard_provider.set_text(text);
 
                 // Step 3.1.2 Remove the contents of the selection from the document and collapse the selection.
                 textinput.borrow_mut().delete_char(Direction::Backward);

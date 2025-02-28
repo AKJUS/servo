@@ -11,6 +11,7 @@ use style::shared_lock::SharedRwLockReadGuard;
 use style::stylesheets::Stylesheet;
 use style::stylist::{CascadeData, Stylist};
 
+use crate::conversions::Convert;
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::ShadowRootBinding::ShadowRoot_Binding::ShadowRootMethods;
 use crate::dom::bindings::codegen::Bindings::ShadowRootBinding::{
@@ -103,6 +104,7 @@ impl ShadowRoot {
         mode: ShadowRootMode,
         slot_assignment_mode: SlotAssignmentMode,
         clonable: bool,
+        can_gc: CanGc,
     ) -> DomRoot<ShadowRoot> {
         reflect_dom_object(
             Box::new(ShadowRoot::new_inherited(
@@ -113,7 +115,7 @@ impl ShadowRoot {
                 clonable,
             )),
             document.window(),
-            CanGc::note(),
+            can_gc,
         )
     }
 
@@ -289,6 +291,7 @@ impl ShadowRootMethods<crate::DomTypeHolder> for ShadowRoot {
             StyleSheetList::new(
                 &self.window,
                 StyleSheetListOwner::ShadowRoot(Dom::from_ref(self)),
+                CanGc::note(),
             )
         })
     }
@@ -325,6 +328,9 @@ impl ShadowRootMethods<crate::DomTypeHolder> for ShadowRoot {
     fn SlotAssignment(&self) -> SlotAssignmentMode {
         self.slot_assignment_mode
     }
+
+    // https://dom.spec.whatwg.org/#dom-shadowroot-onslotchange
+    event_handler!(onslotchange, GetOnslotchange, SetOnslotchange);
 }
 
 impl VirtualMethods for ShadowRoot {
@@ -415,6 +421,15 @@ impl<'dom> LayoutShadowRootHelpers<'dom> for LayoutDom<'dom, ShadowRoot> {
         let author_styles = self.unsafe_get().author_styles.borrow_mut_for_layout();
         if author_styles.stylesheets.dirty() {
             author_styles.flush::<E>(stylist, guard);
+        }
+    }
+}
+
+impl Convert<devtools_traits::ShadowRootMode> for ShadowRootMode {
+    fn convert(self) -> devtools_traits::ShadowRootMode {
+        match self {
+            ShadowRootMode::Open => devtools_traits::ShadowRootMode::Open,
+            ShadowRootMode::Closed => devtools_traits::ShadowRootMode::Closed,
         }
     }
 }

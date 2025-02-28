@@ -151,7 +151,8 @@ macro_rules! make_labels_getter(
             use $crate::dom::nodelist::NodeList;
             self.$memo.or_init(|| NodeList::new_labels_list(
                 self.upcast::<Node>().owner_doc().window(),
-                self.upcast::<HTMLElement>()
+                self.upcast::<HTMLElement>(),
+                CanGc::note()
                 )
             )
         }
@@ -656,7 +657,7 @@ macro_rules! rooted_vec {
 macro_rules! impl_performance_entry_struct(
     ($binding:ident, $struct:ident, $type:expr) => (
         use base::cross_process_instant::CrossProcessInstant;
-        use time_03::Duration;
+        use time::Duration;
 
         use crate::dom::bindings::reflector::reflect_dom_object;
         use crate::dom::bindings::root::DomRoot;

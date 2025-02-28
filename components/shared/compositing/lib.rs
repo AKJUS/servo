@@ -12,16 +12,13 @@ use base::id::{PipelineId, TopLevelBrowsingContextId};
 use base::Epoch;
 pub use constellation_msg::ConstellationMsg;
 use crossbeam_channel::{Receiver, Sender};
-use embedder_traits::EventLoopWaker;
+use embedder_traits::{EventLoopWaker, MouseButton, MouseButtonAction};
 use euclid::Rect;
 use ipc_channel::ipc::IpcSender;
 use log::warn;
 use pixels::Image;
-use script_traits::{
-    AnimationState, ConstellationControlMsg, EventResult, MouseButton, MouseEventType,
-};
+use script_traits::{AnimationState, ScriptThreadMessage, TouchEventResult};
 use style_traits::CSSPixel;
-use webrender_api::units::DeviceRect;
 use webrender_api::DocumentId;
 use webrender_traits::{CrossProcessCompositorApi, CrossProcessCompositorMessage};
 
@@ -61,26 +58,14 @@ impl CompositorReceiver {
 
 /// Messages from (or via) the constellation thread to the compositor.
 pub enum CompositorMsg {
-    /// Informs the compositor that the constellation has completed shutdown.
-    /// Required because the constellation can have pending calls to make
-    /// (e.g. SetFrameTree) at the time that we send it an ExitMsg.
-    ShutdownComplete,
     /// Alerts the compositor that the given pipeline has changed whether it is running animations.
     ChangeRunningAnimationsState(PipelineId, AnimationState),
     /// Create or update a webview, given its frame tree.
     CreateOrUpdateWebView(SendableFrameTree),
     /// Remove a webview.
     RemoveWebView(TopLevelBrowsingContextId),
-    /// Move and/or resize a webview to the given rect.
-    MoveResizeWebView(TopLevelBrowsingContextId, DeviceRect),
-    /// Start painting a webview, and optionally stop painting all others.
-    ShowWebView(TopLevelBrowsingContextId, bool),
-    /// Stop painting a webview.
-    HideWebView(TopLevelBrowsingContextId),
-    /// Start painting a webview on top of all others, and optionally stop painting all others.
-    RaiseWebViewToTop(TopLevelBrowsingContextId, bool),
     /// Script has handled a touch event, and either prevented or allowed default actions.
-    TouchEventProcessed(EventResult),
+    TouchEventProcessed(TouchEventResult),
     /// Composite to a PNG file and return the Image over a passed channel.
     CreatePng(Option<Rect<f32, CSSPixel>>, IpcSender<Option<Image>>),
     /// A reply to the compositor asking if the output image is stable.
@@ -104,7 +89,7 @@ pub enum CompositorMsg {
     /// The load of a page has completed
     LoadComplete(TopLevelBrowsingContextId),
     /// WebDriver mouse button event
-    WebDriverMouseButtonEvent(MouseEventType, MouseButton, f32, f32),
+    WebDriverMouseButtonEvent(MouseButtonAction, MouseButton, f32, f32),
     /// WebDriver mouse move event
     WebDriverMouseMoveEvent(f32, f32),
 
@@ -123,22 +108,17 @@ pub struct SendableFrameTree {
 pub struct CompositionPipeline {
     pub id: PipelineId,
     pub top_level_browsing_context_id: TopLevelBrowsingContextId,
-    pub script_chan: IpcSender<ConstellationControlMsg>,
+    pub script_chan: IpcSender<ScriptThreadMessage>,
 }
 
 impl Debug for CompositorMsg {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match *self {
-            CompositorMsg::ShutdownComplete => write!(f, "ShutdownComplete"),
             CompositorMsg::ChangeRunningAnimationsState(_, state) => {
                 write!(f, "ChangeRunningAnimationsState({:?})", state)
             },
             CompositorMsg::CreateOrUpdateWebView(..) => write!(f, "CreateOrUpdateWebView"),
             CompositorMsg::RemoveWebView(..) => write!(f, "RemoveWebView"),
-            CompositorMsg::MoveResizeWebView(..) => write!(f, "MoveResizeWebView"),
-            CompositorMsg::ShowWebView(..) => write!(f, "ShowWebView"),
-            CompositorMsg::HideWebView(..) => write!(f, "HideWebView"),
-            CompositorMsg::RaiseWebViewToTop(..) => write!(f, "RaiseWebViewToTop"),
             CompositorMsg::TouchEventProcessed(..) => write!(f, "TouchEventProcessed"),
             CompositorMsg::CreatePng(..) => write!(f, "CreatePng"),
             CompositorMsg::IsReadyToSaveImageReply(..) => write!(f, "IsReadyToSaveImageReply"),

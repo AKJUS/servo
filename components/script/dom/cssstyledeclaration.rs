@@ -23,7 +23,7 @@ use crate::dom::bindings::codegen::Bindings::CSSStyleDeclarationBinding::CSSStyl
 use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::cssrule::CSSRule;
@@ -235,6 +235,7 @@ impl CSSStyleDeclaration {
         owner: CSSStyleOwner,
         pseudo: Option<PseudoElement>,
         modification_access: CSSModificationAccess,
+        can_gc: CanGc,
     ) -> DomRoot<CSSStyleDeclaration> {
         reflect_dom_object(
             Box::new(CSSStyleDeclaration::new_inherited(
@@ -243,7 +244,7 @@ impl CSSStyleDeclaration {
                 modification_access,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 

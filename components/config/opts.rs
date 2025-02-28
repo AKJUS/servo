@@ -9,14 +9,17 @@ use std::default::Default;
 use std::path::PathBuf;
 use std::sync::{LazyLock, RwLock, RwLockReadGuard};
 
-use euclid::Size2D;
 use serde::{Deserialize, Serialize};
-use servo_geometry::DeviceIndependentPixel;
 use servo_url::ServoUrl;
 
 /// Global flags for Servo, currently set on the command line.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Opts {
+    /// Whether or not Servo should wait for web content to go into an idle state, therefore
+    /// likely producing a stable output image. This is useful for taking screenshots of pages
+    /// after they have loaded.
+    pub wait_for_stable_image: bool,
+
     /// Whether or not the legacy layout system is enabled.
     pub legacy_layout: bool,
 
@@ -46,10 +49,6 @@ pub struct Opts {
 
     pub user_stylesheets: Vec<(Vec<u8>, ServoUrl)>,
 
-    pub output_file: Option<String>,
-
-    pub headless: bool,
-
     /// True to exit on thread failure instead of displaying about:failure.
     pub hard_fail: bool,
 
@@ -60,13 +59,6 @@ pub struct Opts {
     /// `None` to disable WebDriver or `Some` with a port number to start a server to listen to
     /// remote WebDriver commands.
     pub webdriver_port: Option<u16>,
-
-    /// The initial requested size of the window.
-    pub initial_window_size: Size2D<u32, DeviceIndependentPixel>,
-
-    /// An override for the screen resolution. This is useful for testing behavior on different screen sizes,
-    /// such as the screen of a mobile device.
-    pub screen_size_override: Option<Size2D<u32, DeviceIndependentPixel>>,
 
     /// Whether we're running in multiprocess mode.
     pub multiprocess: bool,
@@ -84,9 +76,6 @@ pub struct Opts {
     /// The seed for the RNG used to randomly close pipelines,
     /// used for testing the hardening of the constellation.
     pub random_pipeline_closure_seed: Option<usize>,
-
-    /// True to exit after the page load (`-x`).
-    pub exit_after_load: bool,
 
     /// Load shaders from disk.
     pub shaders_dir: Option<PathBuf>,
@@ -156,10 +145,6 @@ pub struct DebugOptions {
     /// Translate mouse input into touch events.
     pub convert_mouse_to_touch: bool,
 
-    /// Replace unpaires surrogates in DOM strings with U+FFFD.
-    /// See <https://github.com/servo/servo/issues/6564>
-    pub replace_surrogates: bool,
-
     /// Log GC passes and their durations.
     pub gc_profile: bool,
 
@@ -186,7 +171,6 @@ impl DebugOptions {
                 "gc-profile" => self.gc_profile = true,
                 "profile-script-events" => self.profile_script_events = true,
                 "relayout-event" => self.relayout_event = true,
-                "replace-surrogates" => self.replace_surrogates = true,
                 "signpost" => self.signpost = true,
                 "dump-style-stats" => self.dump_style_statistics = true,
                 "trace-layout" => self.trace_layout = true,
@@ -207,43 +191,41 @@ pub enum OutputOptions {
     Stdout(f64),
 }
 
-pub fn default_opts() -> Opts {
-    Opts {
-        legacy_layout: false,
-        time_profiling: None,
-        time_profiler_trace_path: None,
-        mem_profiler_period: None,
-        nonincremental_layout: false,
-        userscripts: None,
-        user_stylesheets: Vec::new(),
-        output_file: None,
-        headless: false,
-        hard_fail: true,
-        webdriver_port: None,
-        initial_window_size: Size2D::new(1024, 740),
-        screen_size_override: None,
-        multiprocess: false,
-        background_hang_monitor: false,
-        random_pipeline_closure_probability: None,
-        random_pipeline_closure_seed: None,
-        sandbox: false,
-        debug: Default::default(),
-        exit_after_load: false,
-        config_dir: None,
-        shaders_dir: None,
-        certificate_path: None,
-        ignore_certificate_errors: false,
-        unminify_js: false,
-        local_script_source: None,
-        unminify_css: false,
-        print_pwm: false,
+impl Default for Opts {
+    fn default() -> Self {
+        Self {
+            wait_for_stable_image: false,
+            legacy_layout: false,
+            time_profiling: None,
+            time_profiler_trace_path: None,
+            mem_profiler_period: None,
+            nonincremental_layout: false,
+            userscripts: None,
+            user_stylesheets: Vec::new(),
+            hard_fail: true,
+            webdriver_port: None,
+            multiprocess: false,
+            background_hang_monitor: false,
+            random_pipeline_closure_probability: None,
+            random_pipeline_closure_seed: None,
+            sandbox: false,
+            debug: Default::default(),
+            config_dir: None,
+            shaders_dir: None,
+            certificate_path: None,
+            ignore_certificate_errors: false,
+            unminify_js: false,
+            local_script_source: None,
+            unminify_css: false,
+            print_pwm: false,
+        }
     }
 }
 
 // Make Opts available globally. This saves having to clone and pass
 // opts everywhere it is used, which gets particularly cumbersome
 // when passing through the DOM structures.
-static OPTIONS: LazyLock<RwLock<Opts>> = LazyLock::new(|| RwLock::new(default_opts()));
+static OPTIONS: LazyLock<RwLock<Opts>> = LazyLock::new(|| RwLock::new(Opts::default()));
 
 pub fn set_options(opts: Opts) {
     *OPTIONS.write().unwrap() = opts;

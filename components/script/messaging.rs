@@ -3,11 +3,13 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use core::fmt;
+#[cfg(feature = "webgpu")]
 use std::cell::RefCell;
 use std::option::Option;
 use std::result::Result;
 
 use base::id::PipelineId;
+#[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
 use crossbeam_channel::{select, Receiver, SendError, Sender};
 use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};
@@ -16,7 +18,7 @@ use net_traits::image_cache::PendingImageResponse;
 use net_traits::FetchResponseMsg;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time};
-use script_traits::{ConstellationControlMsg, LayoutMsg, Painter, ScriptMsg};
+use script_traits::{LayoutMsg, Painter, ScriptMsg, ScriptThreadMessage};
 use servo_atoms::Atom;
 use timers::TimerScheduler;
 #[cfg(feature = "webgpu")]
@@ -32,14 +34,12 @@ use crate::task::TaskBox;
 use crate::task_queue::{QueuedTask, QueuedTaskConversion, TaskQueue};
 use crate::task_source::TaskSourceName;
 
-pub(crate) type ImageCacheMsg = (PipelineId, PendingImageResponse);
-
 #[derive(Debug)]
 pub(crate) enum MixedMessage {
-    FromConstellation(ConstellationControlMsg),
+    FromConstellation(ScriptThreadMessage),
     FromScript(MainThreadScriptMsg),
     FromDevtools(DevtoolScriptControlMsg),
-    FromImageCache((PipelineId, PendingImageResponse)),
+    FromImageCache(PendingImageResponse),
     #[cfg(feature = "webgpu")]
     FromWebGPUServer(WebGPUMsg),
     TimerFired,
@@ -49,46 +49,46 @@ impl MixedMessage {
     pub(crate) fn pipeline_id(&self) -> Option<PipelineId> {
         match self {
             MixedMessage::FromConstellation(ref inner_msg) => match *inner_msg {
-                ConstellationControlMsg::StopDelayingLoadEventsMode(id) => Some(id),
-                ConstellationControlMsg::AttachLayout(ref new_layout_info) => new_layout_info
+                ScriptThreadMessage::StopDelayingLoadEventsMode(id) => Some(id),
+                ScriptThreadMessage::AttachLayout(ref new_layout_info) => new_layout_info
                     .parent_info
                     .or(Some(new_layout_info.new_pipeline_id)),
-                ConstellationControlMsg::Resize(id, ..) => Some(id),
-                ConstellationControlMsg::ThemeChange(id, ..) => Some(id),
-                ConstellationControlMsg::ResizeInactive(id, ..) => Some(id),
-                ConstellationControlMsg::UnloadDocument(id) => Some(id),
-                ConstellationControlMsg::ExitPipeline(id, ..) => Some(id),
-                ConstellationControlMsg::ExitScriptThread => None,
-                ConstellationControlMsg::SendEvent(id, ..) => Some(id),
-                ConstellationControlMsg::Viewport(id, ..) => Some(id),
-                ConstellationControlMsg::GetTitle(id) => Some(id),
-                ConstellationControlMsg::SetDocumentActivity(id, ..) => Some(id),
-                ConstellationControlMsg::SetThrottled(id, ..) => Some(id),
-                ConstellationControlMsg::SetThrottledInContainingIframe(id, ..) => Some(id),
-                ConstellationControlMsg::NavigateIframe(id, ..) => Some(id),
-                ConstellationControlMsg::PostMessage { target: id, .. } => Some(id),
-                ConstellationControlMsg::UpdatePipelineId(_, _, _, id, _) => Some(id),
-                ConstellationControlMsg::UpdateHistoryState(id, ..) => Some(id),
-                ConstellationControlMsg::RemoveHistoryStates(id, ..) => Some(id),
-                ConstellationControlMsg::FocusIFrame(id, ..) => Some(id),
-                ConstellationControlMsg::WebDriverScriptCommand(id, ..) => Some(id),
-                ConstellationControlMsg::TickAllAnimations(id, ..) => Some(id),
-                ConstellationControlMsg::WebFontLoaded(id, ..) => Some(id),
-                ConstellationControlMsg::DispatchIFrameLoadEvent {
+                ScriptThreadMessage::Resize(id, ..) => Some(id),
+                ScriptThreadMessage::ThemeChange(id, ..) => Some(id),
+                ScriptThreadMessage::ResizeInactive(id, ..) => Some(id),
+                ScriptThreadMessage::UnloadDocument(id) => Some(id),
+                ScriptThreadMessage::ExitPipeline(id, ..) => Some(id),
+                ScriptThreadMessage::ExitScriptThread => None,
+                ScriptThreadMessage::SendInputEvent(id, ..) => Some(id),
+                ScriptThreadMessage::Viewport(id, ..) => Some(id),
+                ScriptThreadMessage::GetTitle(id) => Some(id),
+                ScriptThreadMessage::SetDocumentActivity(id, ..) => Some(id),
+                ScriptThreadMessage::SetThrottled(id, ..) => Some(id),
+                ScriptThreadMessage::SetThrottledInContainingIframe(id, ..) => Some(id),
+                ScriptThreadMessage::NavigateIframe(id, ..) => Some(id),
+                ScriptThreadMessage::PostMessage { target: id, .. } => Some(id),
+                ScriptThreadMessage::UpdatePipelineId(_, _, _, id, _) => Some(id),
+                ScriptThreadMessage::UpdateHistoryState(id, ..) => Some(id),
+                ScriptThreadMessage::RemoveHistoryStates(id, ..) => Some(id),
+                ScriptThreadMessage::FocusIFrame(id, ..) => Some(id),
+                ScriptThreadMessage::WebDriverScriptCommand(id, ..) => Some(id),
+                ScriptThreadMessage::TickAllAnimations(id, ..) => Some(id),
+                ScriptThreadMessage::WebFontLoaded(id, ..) => Some(id),
+                ScriptThreadMessage::DispatchIFrameLoadEvent {
                     target: _,
                     parent: id,
                     child: _,
                 } => Some(id),
-                ConstellationControlMsg::DispatchStorageEvent(id, ..) => Some(id),
-                ConstellationControlMsg::ReportCSSError(id, ..) => Some(id),
-                ConstellationControlMsg::Reload(id, ..) => Some(id),
-                ConstellationControlMsg::PaintMetric(id, ..) => Some(id),
-                ConstellationControlMsg::ExitFullScreen(id, ..) => Some(id),
-                ConstellationControlMsg::MediaSessionAction(..) => None,
+                ScriptThreadMessage::DispatchStorageEvent(id, ..) => Some(id),
+                ScriptThreadMessage::ReportCSSError(id, ..) => Some(id),
+                ScriptThreadMessage::Reload(id, ..) => Some(id),
+                ScriptThreadMessage::PaintMetric(id, ..) => Some(id),
+                ScriptThreadMessage::ExitFullScreen(id, ..) => Some(id),
+                ScriptThreadMessage::MediaSessionAction(..) => None,
                 #[cfg(feature = "webgpu")]
-                ConstellationControlMsg::SetWebGPUPort(..) => None,
-                ConstellationControlMsg::SetScrollStates(id, ..) => Some(id),
-                ConstellationControlMsg::SetEpochPaintTime(id, ..) => Some(id),
+                ScriptThreadMessage::SetWebGPUPort(..) => None,
+                ScriptThreadMessage::SetScrollStates(id, ..) => Some(id),
+                ScriptThreadMessage::SetEpochPaintTime(id, ..) => Some(id),
             },
             MixedMessage::FromScript(ref inner_msg) => match *inner_msg {
                 MainThreadScriptMsg::Common(CommonScriptMsg::Task(_, _, pipeline_id, _)) => {
@@ -101,7 +101,7 @@ impl MixedMessage {
                 MainThreadScriptMsg::Inactive => None,
                 MainThreadScriptMsg::WakeUp => None,
             },
-            MixedMessage::FromImageCache((pipeline_id, _)) => Some(*pipeline_id),
+            MixedMessage::FromImageCache(response) => Some(response.pipeline_id),
             MixedMessage::FromDevtools(_) | MixedMessage::TimerFired => None,
             #[cfg(feature = "webgpu")]
             MixedMessage::FromWebGPUServer(..) => None,
@@ -306,11 +306,12 @@ pub(crate) struct ScriptThreadSenders {
 
     /// A handle to the bluetooth thread.
     #[no_trace]
+    #[cfg(feature = "bluetooth")]
     pub(crate) bluetooth_sender: IpcSender<BluetoothRequest>,
 
     /// A [`Sender`] that sends messages to the `Constellation`.
     #[no_trace]
-    pub(crate) constellation_sender: IpcSender<ConstellationControlMsg>,
+    pub(crate) constellation_sender: IpcSender<ScriptThreadMessage>,
 
     /// A [`Sender`] that sends messages to the `Constellation` associated with
     /// particular pipelines.
@@ -321,9 +322,11 @@ pub(crate) struct ScriptThreadSenders {
     #[no_trace]
     pub(crate) layout_to_constellation_ipc_sender: IpcSender<LayoutMsg>,
 
-    /// The [`Sender`] on which messages can be sent to the `ImageCache`.
+    /// The shared [`IpcSender`] which is sent to the `ImageCache` when requesting an image. The
+    /// messages on this channel are routed to crossbeam [`Sender`] on the router thread, which
+    /// in turn sends messages to [`ScriptThreadReceivers::image_cache_receiver`].
     #[no_trace]
-    pub(crate) image_cache_sender: Sender<ImageCacheMsg>,
+    pub(crate) image_cache_sender: IpcSender<PendingImageResponse>,
 
     /// For providing contact with the time profiler.
     #[no_trace]
@@ -348,11 +351,11 @@ pub(crate) struct ScriptThreadSenders {
 pub(crate) struct ScriptThreadReceivers {
     /// A [`Receiver`] that receives messages from the constellation.
     #[no_trace]
-    pub(crate) constellation_receiver: Receiver<ConstellationControlMsg>,
+    pub(crate) constellation_receiver: Receiver<ScriptThreadMessage>,
 
     /// The [`Receiver`] which receives incoming messages from the `ImageCache`.
     #[no_trace]
-    pub(crate) image_cache_receiver: Receiver<ImageCacheMsg>,
+    pub(crate) image_cache_receiver: Receiver<PendingImageResponse>,
 
     /// For receiving commands from an optional devtools server. Will be ignored if no such server
     /// exists. When devtools are not active this will be [`crossbeam_channel::never()`].
@@ -402,7 +405,7 @@ impl ScriptThreadReceivers {
                 }
                 #[cfg(not(feature = "webgpu"))]
                 {
-                    unreachable!("This should never be hit when webgpu is disabled");
+                    unreachable!("This should never be hit when webgpu is disabled ({msg:?})");
                 }
             }
         }

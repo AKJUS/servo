@@ -13,15 +13,25 @@ path = "lib.rs"
 crate-type = ["rlib"]
 
 [features]
+bluetooth = [
+    "bluetooth_traits",
+    "dep:bluetooth",
+    "constellation/bluetooth",
+    "script/bluetooth",
+    "script_traits/bluetooth",
+]
+default = ["clipboard"]
+clipboard = ["dep:arboard"]
 crown = ["script/crown"]
 debugmozjs = ["script/debugmozjs"]
+background_hang_monitor = ["background_hang_monitor/sampler"]
 jitspew = ["script/jitspew"]
 js_backtrace = ["script/js_backtrace"]
 layout_2013 = ["dep:layout_thread_2013"]
 media-gstreamer = ["servo-media-gstreamer", "gstreamer"]
 multiview = ["compositing/multiview", "constellation/multiview"]
 native-bluetooth = ["bluetooth/native-bluetooth"]
-no-wgl = ["mozangle/egl", "mozangle/build_dlls", "surfman/sm-angle-default"]
+no-wgl = ["mozangle/egl", "mozangle/build_dlls", "surfman/sm-angle-default", "webrender_traits/no-wgl"]
 dynamic_freetype = ["webrender/dynamic_freetype"]
 profilemozjs = ["script/profilemozjs"]
 refcell_backtrace = ["script/refcell_backtrace"]
@@ -48,8 +58,9 @@ webgpu = [
 [dependencies]
 background_hang_monitor = { path = "../background_hang_monitor" }
 base = { workspace = true }
-bluetooth = { path = "../bluetooth" }
-bluetooth_traits = { workspace = true }
+bincode = { workspace = true }
+bluetooth = { path = "../bluetooth", optional = true }
+bluetooth_traits = { workspace = true, optional = true }
 canvas = { path = "../canvas", default-features = false }
 canvas_traits = { workspace = true }
 cfg-if = { workspace = true }
@@ -59,6 +70,7 @@ constellation = { path = "../constellation" }
 crossbeam-channel = { workspace = true }
 devtools = { path = "../devtools" }
 devtools_traits = { workspace = true }
+dpi = { workspace = true }
 embedder_traits = { workspace = true }
 env_logger = { workspace = true }
 euclid = { workspace = true }
@@ -75,11 +87,13 @@ mozangle = { workspace = true }
 net = { path = "../net" }
 net_traits = { workspace = true }
 rayon = { workspace = true }
+parking_lot = { workspace = true }
 profile = { path = "../profile" }
 profile_traits = { workspace = true }
 script = { path = "../script" }
 script_layout_interface = { workspace = true }
 script_traits = { workspace = true }
+serde = { workspace = true }
 servo-media = { workspace = true }
 servo-media-dummy = { workspace = true }
 servo-media-gstreamer = { workspace = true, optional = true }
@@ -88,26 +102,31 @@ servo_geometry = { path = "../geometry" }
 servo_url = { path = "../url" }
 style = { workspace = true }
 style_traits = { workspace = true }
+surfman = { workspace = true }
 tracing = { workspace = true, optional = true }
+url = { workspace = true }
 webdriver_server = { path = "../webdriver_server", optional = true }
 webgpu = { path = "../webgpu" }
 webrender = { workspace = true }
 webrender_api = { workspace = true }
 webrender_traits = { workspace = true }
-webxr = { workspace = true, optional = true }
 webxr-api = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
-surfman = { workspace = true, features = ["sm-angle-default"] }
+webxr = { path = "../webxr", optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_env = "ohos")))'.dependencies]
-surfman = { workspace = true, features = ["sm-x11", "sm-raw-window-handle-06"] }
+arboard = { workspace = true, optional = true }
+webxr = { path = "../webxr", features = ["ipc", "glwindow", "headless"] }
 
 [target.'cfg(all(not(target_os = "windows"), not(target_os = "ios"), not(target_os = "android"), not(target_env = "ohos"), not(target_arch = "arm"), not(target_arch = "aarch64")))'.dependencies]
 gaol = "0.2.1"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+webxr = { path = "../webxr", features = ["ipc", "glwindow", "headless", "openxr-api"] }
+
 [dev-dependencies]
 libservo = { path = ".", features = ["tracing"] }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 tracing = { workspace = true }
 winit = "0.30.8"

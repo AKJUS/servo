@@ -9,7 +9,7 @@ use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::AudioTrackListBinding::AudioTrackListMethods;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::eventtarget::EventTarget;
@@ -40,11 +40,12 @@ impl AudioTrackList {
         window: &Window,
         tracks: &[&AudioTrack],
         media_element: Option<&HTMLMediaElement>,
+        can_gc: CanGc,
     ) -> DomRoot<AudioTrackList> {
         reflect_dom_object(
             Box::new(AudioTrackList::new_inherited(tracks, media_element)),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 

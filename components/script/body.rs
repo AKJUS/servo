@@ -3,16 +3,16 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::rc::Rc;
-use std::{ptr, str};
+use std::{ptr, slice, str};
 
-use encoding_rs::UTF_8;
+use encoding_rs::{Encoding, UTF_8};
 use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use js::jsapi::{Heap, JSObject, JS_ClearPendingException, Value as JSValue};
 use js::jsval::{JSVal, UndefinedValue};
 use js::rust::wrappers::{JS_GetPendingException, JS_ParseJSON};
 use js::rust::HandleValue;
-use js::typedarray::{ArrayBuffer, CreateWith};
+use js::typedarray::{ArrayBufferU8, Uint8};
 use mime::{self, Mime};
 use net_traits::request::{
     BodyChunkRequest, BodyChunkResponse, BodySource as NetBodySource, RequestBody,
@@ -20,13 +20,14 @@ use net_traits::request::{
 use script_traits::serializable::BlobImpl;
 use url::form_urlencoded;
 
+use crate::dom::bindings::buffer_source::create_buffer_source;
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::BlobBinding::Blob_Binding::BlobMethods;
 use crate::dom::bindings::codegen::Bindings::FormDataBinding::FormDataMethods;
 use crate::dom::bindings::codegen::Bindings::XMLHttpRequestBinding::BodyInit;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::{DomGlobal, DomObject};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::{DOMString, USVString};
 use crate::dom::bindings::trace::RootedTraceableBox;
@@ -254,7 +255,7 @@ impl TransmitBodyConnectHandler {
                 });
 
                 let handler =
-                    PromiseNativeHandler::new(&global, Some(promise_handler), Some(rejection_handler));
+                    PromiseNativeHandler::new(&global, Some(promise_handler), Some(rejection_handler), CanGc::note());
 
                 let realm = enter_realm(&*global);
                 let comp = InRealm::Entered(&realm);
@@ -280,14 +281,14 @@ struct TransmitBodyPromiseHandler {
 
 impl Callback for TransmitBodyPromiseHandler {
     /// Step 5 of <https://fetch.spec.whatwg.org/#concept-request-transmit-body>
-    fn callback(&self, cx: JSContext, v: HandleValue, _realm: InRealm, _can_gc: CanGc) {
+    fn callback(&self, cx: JSContext, v: HandleValue, _realm: InRealm, can_gc: CanGc) {
         let is_done = match get_read_promise_done(cx, &v) {
             Ok(is_done) => is_done,
             Err(_) => {
                 // Step 5.5, the "otherwise" steps.
                 // TODO: terminate fetch.
                 let _ = self.control_sender.send(BodyChunkRequest::Done);
-                return self.stream.stop_reading();
+                return self.stream.stop_reading(can_gc);
             },
         };
 
@@ -295,7 +296,7 @@ impl Callback for TransmitBodyPromiseHandler {
             // Step 5.3, the "done" steps.
             // TODO: queue a fetch task on request to process request end-of-body.
             let _ = self.control_sender.send(BodyChunkRequest::Done);
-            return self.stream.stop_reading();
+            return self.stream.stop_reading(can_gc);
         }
 
         let chunk = match get_read_promise_bytes(cx, &v) {
@@ -303,7 +304,7 @@ impl Callback for TransmitBodyPromiseHandler {
             Err(_) => {
                 // Step 5.5, the "otherwise" steps.
                 let _ = self.control_sender.send(BodyChunkRequest::Error);
-                return self.stream.stop_reading();
+                return self.stream.stop_reading(can_gc);
             },
         };
 
@@ -329,10 +330,10 @@ struct TransmitBodyPromiseRejectionHandler {
 
 impl Callback for TransmitBodyPromiseRejectionHandler {
     /// <https://fetch.spec.whatwg.org/#concept-request-transmit-body>
-    fn callback(&self, _cx: JSContext, _v: HandleValue, _realm: InRealm, _can_gc: CanGc) {
+    fn callback(&self, _cx: JSContext, _v: HandleValue, _realm: InRealm, can_gc: CanGc) {
         // Step 5.4, the "rejection" steps.
         let _ = self.control_sender.send(BodyChunkRequest::Error);
-        self.stream.stop_reading();
+        self.stream.stop_reading(can_gc);
     }
 }
 
@@ -572,6 +573,7 @@ impl Extractable for URLSearchParams {
 #[derive(Clone, Copy, JSTraceable, MallocSizeOf)]
 pub(crate) enum BodyType {
     Blob,
+    Bytes,
     FormData,
     Json,
     Text,
@@ -582,6 +584,7 @@ pub(crate) enum FetchedData {
     Text(String),
     Json(RootedTraceableBox<Heap<JSValue>>),
     BlobData(DomRoot<Blob>),
+    Bytes(RootedTraceableBox<Heap<*mut JSObject>>),
     FormData(DomRoot<FormData>),
     ArrayBuffer(RootedTraceableBox<Heap<*mut JSObject>>),
     JSException(RootedTraceableBox<Heap<JSVal>>),
@@ -597,8 +600,8 @@ impl Callback for ConsumeBodyPromiseRejectionHandler {
     /// Continuing Step 4 of <https://fetch.spec.whatwg.org/#concept-body-consume-body>
     /// Step 3 of <https://fetch.spec.whatwg.org/#concept-read-all-bytes-from-readablestream>,
     // the rejection steps.
-    fn callback(&self, cx: JSContext, v: HandleValue, _realm: InRealm, _can_gc: CanGc) {
-        self.result_promise.reject(cx, v);
+    fn callback(&self, cx: JSContext, v: HandleValue, _realm: InRealm, can_gc: CanGc) {
+        self.result_promise.reject(cx, v, can_gc);
     }
 }
 
@@ -629,15 +632,20 @@ impl ConsumeBodyPromiseHandler {
         match pkg_data_results {
             Ok(results) => {
                 match results {
-                    FetchedData::Text(s) => self.result_promise.resolve_native(&USVString(s)),
-                    FetchedData::Json(j) => self.result_promise.resolve_native(&j),
-                    FetchedData::BlobData(b) => self.result_promise.resolve_native(&b),
-                    FetchedData::FormData(f) => self.result_promise.resolve_native(&f),
-                    FetchedData::ArrayBuffer(a) => self.result_promise.resolve_native(&a),
-                    FetchedData::JSException(e) => self.result_promise.reject_native(&e.handle()),
+                    FetchedData::Text(s) => {
+                        self.result_promise.resolve_native(&USVString(s), can_gc)
+                    },
+                    FetchedData::Json(j) => self.result_promise.resolve_native(&j, can_gc),
+                    FetchedData::BlobData(b) => self.result_promise.resolve_native(&b, can_gc),
+                    FetchedData::FormData(f) => self.result_promise.resolve_native(&f, can_gc),
+                    FetchedData::Bytes(b) => self.result_promise.resolve_native(&b, can_gc),
+                    FetchedData::ArrayBuffer(a) => self.result_promise.resolve_native(&a, can_gc),
+                    FetchedData::JSException(e) => {
+                        self.result_promise.reject_native(&e.handle(), can_gc)
+                    },
                 };
             },
-            Err(err) => self.result_promise.reject_error(err),
+            Err(err) => self.result_promise.reject_error(err, can_gc),
         }
     }
 }
@@ -655,9 +663,9 @@ impl Callback for ConsumeBodyPromiseHandler {
         let is_done = match get_read_promise_done(cx, &v) {
             Ok(is_done) => is_done,
             Err(err) => {
-                stream.stop_reading();
+                stream.stop_reading(can_gc);
                 // When read is fulfilled with a value that doesn't matches with neither of the above patterns.
-                return self.result_promise.reject_error(err);
+                return self.result_promise.reject_error(err, can_gc);
             },
         };
 
@@ -668,9 +676,9 @@ impl Callback for ConsumeBodyPromiseHandler {
             let chunk = match get_read_promise_bytes(cx, &v) {
                 Ok(chunk) => chunk,
                 Err(err) => {
-                    stream.stop_reading();
+                    stream.stop_reading(can_gc);
                     // When read is fulfilled with a value that matches with neither of the above patterns
-                    return self.result_promise.reject_error(err);
+                    return self.result_promise.reject_error(err, can_gc);
                 },
             };
 
@@ -700,8 +708,12 @@ impl Callback for ConsumeBodyPromiseHandler {
                 result_promise: self.result_promise.clone(),
             });
 
-            let handler =
-                PromiseNativeHandler::new(&global, Some(promise_handler), Some(rejection_handler));
+            let handler = PromiseNativeHandler::new(
+                &global,
+                Some(promise_handler),
+                Some(rejection_handler),
+                can_gc,
+            );
 
             let realm = enter_realm(&*global);
             let comp = InRealm::Entered(&realm);
@@ -722,9 +734,10 @@ pub(crate) fn consume_body<T: BodyMixin + DomObject>(
 
     // Step 1
     if object.is_disturbed() || object.is_locked() {
-        promise.reject_error(Error::Type(
-            "The body's stream is disturbed or locked".to_string(),
-        ));
+        promise.reject_error(
+            Error::Type("The body's stream is disturbed or locked".to_string()),
+            can_gc,
+        );
         return promise;
     }
 
@@ -758,9 +771,10 @@ fn consume_body_with_promise<T: BodyMixin + DomObject>(
 
     // Step 3.
     if stream.acquire_default_reader(can_gc).is_err() {
-        return promise.reject_error(Error::Type(
-            "The response's stream is disturbed or locked".to_string(),
-        ));
+        return promise.reject_error(
+            Error::Type("The response's stream is disturbed or locked".to_string()),
+            can_gc,
+        );
     }
 
     // Step 4, read all the bytes.
@@ -788,6 +802,7 @@ fn consume_body_with_promise<T: BodyMixin + DomObject>(
         &object.global(),
         promise_handler.take().map(|h| Box::new(h) as Box<_>),
         Some(rejection_handler),
+        can_gc,
     );
     // We are already in a realm and a script.
     read_promise.append_native_handler(&handler, comp, can_gc);
@@ -809,7 +824,8 @@ fn run_package_data_algorithm(
         BodyType::Json => run_json_data_algorithm(cx, bytes),
         BodyType::Blob => run_blob_data_algorithm(&global, bytes, mime, can_gc),
         BodyType::FormData => run_form_data_algorithm(&global, bytes, mime, can_gc),
-        BodyType::ArrayBuffer => run_array_buffer_data_algorithm(cx, bytes),
+        BodyType::ArrayBuffer => run_array_buffer_data_algorithm(cx, bytes, can_gc),
+        BodyType::Bytes => run_bytes_data_algorithm(cx, bytes, can_gc),
     }
 }
 
@@ -821,8 +837,11 @@ fn run_text_data_algorithm(bytes: Vec<u8>) -> Fallible<FetchedData> {
 
 #[allow(unsafe_code)]
 fn run_json_data_algorithm(cx: JSContext, bytes: Vec<u8>) -> Fallible<FetchedData> {
-    let json_text = String::from_utf8_lossy(&bytes);
-    let json_text: Vec<u16> = json_text.encode_utf16().collect();
+    // The JSON spec allows implementations to either ignore UTF-8 BOM or treat it as an error.
+    // `JS_ParseJSON` treats this as an error, so it is necessary for us to strip it if present.
+    //
+    // https://datatracker.ietf.org/doc/html/rfc8259#section-8.1
+    let json_text = decode_to_utf16_with_bom_removal(&bytes, UTF_8);
     rooted!(in(*cx) let mut rval = UndefinedValue());
     unsafe {
         if !JS_ParseJSON(
@@ -888,24 +907,45 @@ fn run_form_data_algorithm(
     Err(Error::Type("Inappropriate MIME-type for Body".to_string()))
 }
 
-#[allow(unsafe_code)]
+fn run_bytes_data_algorithm(cx: JSContext, bytes: Vec<u8>, can_gc: CanGc) -> Fallible<FetchedData> {
+    rooted!(in(*cx) let mut array_buffer_ptr = ptr::null_mut::<JSObject>());
+
+    create_buffer_source::<Uint8>(cx, &bytes, array_buffer_ptr.handle_mut(), can_gc)
+        .map_err(|_| Error::JSFailed)?;
+
+    let rooted_heap = RootedTraceableBox::from_box(Heap::boxed(array_buffer_ptr.get()));
+    Ok(FetchedData::Bytes(rooted_heap))
+}
+
 pub(crate) fn run_array_buffer_data_algorithm(
     cx: JSContext,
     bytes: Vec<u8>,
+    can_gc: CanGc,
 ) -> Fallible<FetchedData> {
     rooted!(in(*cx) let mut array_buffer_ptr = ptr::null_mut::<JSObject>());
-    let arraybuffer = unsafe {
-        ArrayBuffer::create(
-            *cx,
-            CreateWith::Slice(&bytes),
-            array_buffer_ptr.handle_mut(),
-        )
-    };
-    if arraybuffer.is_err() {
-        return Err(Error::JSFailed);
-    }
+
+    create_buffer_source::<ArrayBufferU8>(cx, &bytes, array_buffer_ptr.handle_mut(), can_gc)
+        .map_err(|_| Error::JSFailed)?;
+
     let rooted_heap = RootedTraceableBox::from_box(Heap::boxed(array_buffer_ptr.get()));
     Ok(FetchedData::ArrayBuffer(rooted_heap))
+}
+
+#[allow(unsafe_code)]
+pub(crate) fn decode_to_utf16_with_bom_removal(
+    bytes: &[u8],
+    encoding: &'static Encoding,
+) -> Vec<u16> {
+    let mut decoder = encoding.new_decoder_with_bom_removal();
+    let capacity = decoder
+        .max_utf16_buffer_length(bytes.len())
+        .expect("Overflow");
+    let mut utf16 = Vec::with_capacity(capacity);
+    let extra = unsafe { slice::from_raw_parts_mut(utf16.as_mut_ptr(), capacity) };
+    let (_, read, written, _) = decoder.decode_to_utf16(bytes, extra, true);
+    assert_eq!(read, bytes.len());
+    unsafe { utf16.set_len(written) }
+    utf16
 }
 
 /// <https://fetch.spec.whatwg.org/#body>

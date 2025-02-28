@@ -5,7 +5,7 @@
 use base::cross_process_instant::CrossProcessInstant;
 use dom_struct::dom_struct;
 use script_traits::ProgressiveWebMetricType;
-use time_03::Duration;
+use time::Duration;
 
 use crate::dom::bindings::reflector::reflect_dom_object;
 use crate::dom::bindings::root::DomRoot;
@@ -46,8 +46,9 @@ impl PerformancePaintTiming {
         global: &GlobalScope,
         metric_type: ProgressiveWebMetricType,
         start_time: CrossProcessInstant,
+        can_gc: CanGc,
     ) -> DomRoot<PerformancePaintTiming> {
         let entry = PerformancePaintTiming::new_inherited(metric_type, start_time);
-        reflect_dom_object(Box::new(entry), global, CanGc::note())
+        reflect_dom_object(Box::new(entry), global, can_gc)
     }
 }

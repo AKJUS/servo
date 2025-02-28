@@ -217,7 +217,7 @@ impl ReplacedContents {
                 Some(ImageOrMetadataAvailable::ImageAvailable { image, .. }) => {
                     (Some(image.clone()), image.width as f32, image.height as f32)
                 },
-                Some(ImageOrMetadataAvailable::MetadataAvailable(metadata)) => {
+                Some(ImageOrMetadataAvailable::MetadataAvailable(metadata, _id)) => {
                     (None, metadata.width as f32, metadata.height as f32)
                 },
                 None => return None,
@@ -533,10 +533,12 @@ impl ReplacedContents {
             .into()
         };
         let (preferred_inline, min_inline, max_inline) = sizes.inline.resolve_each(
+            Direction::Inline,
             automatic_size.inline,
             Au::zero(),
-            inline_stretch_size,
+            Some(inline_stretch_size),
             get_inline_content_size,
+            false, /* is_table */
         );
         let inline_size = preferred_inline.clamp_between_extremums(min_inline, max_inline);
 
@@ -560,10 +562,12 @@ impl ReplacedContents {
             .into()
         });
         let block_size = sizes.block.resolve(
+            Direction::Block,
             automatic_size.block,
             Au::zero(),
-            block_stretch_size.unwrap_or_else(|| block_content_size.max_content),
+            block_stretch_size,
             || *block_content_size,
+            false, /* is_table */
         );
 
         LogicalVec2 {

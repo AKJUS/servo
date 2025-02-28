@@ -138,7 +138,6 @@ pub(crate) mod buffer_source;
 pub(crate) mod callback;
 #[allow(dead_code)]
 pub(crate) mod cell;
-pub(crate) mod constant;
 pub(crate) mod constructor;
 pub(crate) mod conversions;
 pub(crate) mod error;
@@ -161,7 +160,6 @@ pub(crate) mod reflector;
 pub(crate) mod root;
 pub(crate) mod serializable;
 pub(crate) mod settings_stack;
-#[allow(dead_code)]
 pub(crate) mod str;
 pub(crate) mod structuredclone;
 pub(crate) mod trace;
@@ -180,20 +178,29 @@ pub(crate) mod codegen {
         include!(concat!(env!("BINDINGS_OUT_DIR"), "/DomTypes.rs"));
     }
     #[allow(dead_code)]
-    pub(crate) mod Bindings {
+    pub(crate) mod GenericBindings {
         include!(concat!(env!("BINDINGS_OUT_DIR"), "/Bindings/mod.rs"));
+    }
+    #[allow(dead_code)]
+    pub(crate) mod Bindings {
+        include!(concat!(
+            env!("BINDINGS_OUT_DIR"),
+            "/ConcreteBindings/mod.rs"
+        ));
     }
     pub(crate) mod InterfaceObjectMap {
         include!(concat!(env!("BINDINGS_OUT_DIR"), "/InterfaceObjectMap.rs"));
+        pub(crate) use script_bindings::codegen::Globals::Globals;
     }
-    #[allow(dead_code, unused_imports, clippy::enum_variant_names)]
-    pub(crate) mod InheritTypes {
-        include!(concat!(env!("BINDINGS_OUT_DIR"), "/InheritTypes.rs"));
+    pub(crate) use script_bindings::codegen::InheritTypes;
+    #[allow(dead_code)]
+    pub(crate) mod ConcreteInheritTypes {
+        include!(concat!(
+            env!("BINDINGS_OUT_DIR"),
+            "/ConcreteInheritTypes.rs"
+        ));
     }
-    #[allow(clippy::upper_case_acronyms)]
-    pub(crate) mod PrototypeList {
-        include!(concat!(env!("BINDINGS_OUT_DIR"), "/PrototypeList.rs"));
-    }
+    pub(crate) use script_bindings::codegen::PrototypeList;
     pub(crate) mod RegisterBindings {
         include!(concat!(env!("BINDINGS_OUT_DIR"), "/RegisterBindings.rs"));
     }
@@ -205,6 +212,10 @@ pub(crate) mod codegen {
         clippy::upper_case_acronyms,
         clippy::enum_variant_names
     )]
+    pub(crate) mod GenericUnionTypes {
+        include!(concat!(env!("BINDINGS_OUT_DIR"), "/GenericUnionTypes.rs"));
+    }
+    #[allow(dead_code)]
     pub(crate) mod UnionTypes {
         include!(concat!(env!("BINDINGS_OUT_DIR"), "/UnionTypes.rs"));
     }

@@ -22,7 +22,7 @@ use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::num::Finite;
 use crate::dom::bindings::refcounted::{Trusted, TrustedPromise};
-use crate::dom::bindings::reflector::{reflect_dom_object_with_proto, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object_with_proto, DomGlobal};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::htmlmediaelement::HTMLMediaElement;
 use crate::dom::mediaelementaudiosourcenode::MediaElementAudioSourceNode;
@@ -146,13 +146,13 @@ impl AudioContextMethods<crate::DomTypeHolder> for AudioContext {
 
         // Step 2.
         if self.context.control_thread_state() == ProcessingState::Closed {
-            promise.reject_error(Error::InvalidState);
+            promise.reject_error(Error::InvalidState, can_gc);
             return promise;
         }
 
         // Step 3.
         if self.context.State() == AudioContextState::Suspended {
-            promise.resolve_native(&());
+            promise.resolve_native(&(), can_gc);
             return promise;
         }
 
@@ -167,7 +167,7 @@ impl AudioContextMethods<crate::DomTypeHolder> for AudioContext {
                         let base_context = base_context.root();
                         let context = context.root();
                         let promise = trusted_promise.root();
-                        promise.resolve_native(&());
+                        promise.resolve_native(&(), CanGc::note());
                         if base_context.State() != AudioContextState::Suspended {
                             base_context.set_state_attribute(AudioContextState::Suspended);
                             context.global().task_manager().dom_manipulation_task_source().queue_simple_event(
@@ -186,7 +186,7 @@ impl AudioContextMethods<crate::DomTypeHolder> for AudioContext {
                     .dom_manipulation_task_source()
                     .queue(task!(suspend_error: move || {
                         let promise = trusted_promise.root();
-                        promise.reject_error(Error::Type("Something went wrong".to_owned()));
+                        promise.reject_error(Error::Type("Something went wrong".to_owned()), CanGc::note());
                     }));
             },
         };
@@ -202,13 +202,13 @@ impl AudioContextMethods<crate::DomTypeHolder> for AudioContext {
 
         // Step 2.
         if self.context.control_thread_state() == ProcessingState::Closed {
-            promise.reject_error(Error::InvalidState);
+            promise.reject_error(Error::InvalidState, can_gc);
             return promise;
         }
 
         // Step 3.
         if self.context.State() == AudioContextState::Closed {
-            promise.resolve_native(&());
+            promise.resolve_native(&(), can_gc);
             return promise;
         }
 
@@ -223,7 +223,7 @@ impl AudioContextMethods<crate::DomTypeHolder> for AudioContext {
                         let base_context = base_context.root();
                         let context = context.root();
                         let promise = trusted_promise.root();
-                        promise.resolve_native(&());
+                        promise.resolve_native(&(), CanGc::note());
                         if base_context.State() != AudioContextState::Closed {
                             base_context.set_state_attribute(AudioContextState::Closed);
                             context.global().task_manager().dom_manipulation_task_source().queue_simple_event(
@@ -242,7 +242,7 @@ impl AudioContextMethods<crate::DomTypeHolder> for AudioContext {
                     .dom_manipulation_task_source()
                     .queue(task!(suspend_error: move || {
                         let promise = trusted_promise.root();
-                        promise.reject_error(Error::Type("Something went wrong".to_owned()));
+                        promise.reject_error(Error::Type("Something went wrong".to_owned()), CanGc::note());
                     }));
             },
         };

@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::CryptoBinding::CryptoMethods;
 use crate::dom::bindings::error::{Error, Fallible};
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::globalscope::GlobalScope;
@@ -37,15 +37,16 @@ impl Crypto {
         }
     }
 
-    pub(crate) fn new(global: &GlobalScope) -> DomRoot<Crypto> {
-        reflect_dom_object(Box::new(Crypto::new_inherited()), global, CanGc::note())
+    pub(crate) fn new(global: &GlobalScope, can_gc: CanGc) -> DomRoot<Crypto> {
+        reflect_dom_object(Box::new(Crypto::new_inherited()), global, can_gc)
     }
 }
 
 impl CryptoMethods<crate::DomTypeHolder> for Crypto {
     /// <https://w3c.github.io/webcrypto/#dfn-Crypto-attribute-subtle>
     fn Subtle(&self) -> DomRoot<SubtleCrypto> {
-        self.subtle.or_init(|| SubtleCrypto::new(&self.global()))
+        self.subtle
+            .or_init(|| SubtleCrypto::new(&self.global(), CanGc::note()))
     }
 
     #[allow(unsafe_code)]

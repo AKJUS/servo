@@ -7,7 +7,7 @@ use dom_struct::dom_struct;
 
 use super::{WebGLExtension, WebGLExtensionSpec, WebGLExtensions};
 use crate::dom::bindings::codegen::Bindings::OESTextureHalfFloatBinding::OESTextureHalfFloatConstants;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::webglrenderingcontext::WebGLRenderingContext;
 use crate::script_runtime::CanGc;
@@ -27,11 +27,11 @@ impl OESTextureHalfFloat {
 
 impl WebGLExtension for OESTextureHalfFloat {
     type Extension = OESTextureHalfFloat;
-    fn new(ctx: &WebGLRenderingContext) -> DomRoot<OESTextureHalfFloat> {
+    fn new(ctx: &WebGLRenderingContext, can_gc: CanGc) -> DomRoot<OESTextureHalfFloat> {
         reflect_dom_object(
             Box::new(OESTextureHalfFloat::new_inherited()),
             &*ctx.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 

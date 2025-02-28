@@ -13,7 +13,7 @@ use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::WebGPUBinding::{
     GPUShaderModuleDescriptor, GPUShaderModuleMethods,
 };
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::USVString;
 use crate::dom::bindings::trace::RootedTraceableBox;
@@ -59,6 +59,7 @@ impl GPUShaderModule {
         shader_module: WebGPUShaderModule,
         label: USVString,
         promise: Rc<Promise>,
+        can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
             Box::new(GPUShaderModule::new_inherited(
@@ -68,7 +69,7 @@ impl GPUShaderModule {
                 promise,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -93,6 +94,7 @@ impl GPUShaderModule {
             WebGPUShaderModule(program_id),
             descriptor.parent.label.clone(),
             promise.clone(),
+            can_gc,
         );
         let sender = response_async(&promise, &*shader_module);
         device
@@ -132,7 +134,7 @@ impl AsyncWGPUListener for GPUShaderModule {
         match response {
             WebGPUResponse::CompilationInfo(info) => {
                 let info = GPUCompilationInfo::from(&self.global(), info, can_gc);
-                promise.resolve_native(&info);
+                promise.resolve_native(&info, can_gc);
             },
             _ => unreachable!("Wrong response received on AsyncWGPUListener for GPUShaderModule"),
         }

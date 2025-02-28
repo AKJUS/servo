@@ -40,7 +40,7 @@ use crate::dom::bindings::codegen::Bindings::VoidFunctionBinding::VoidFunction;
 use crate::dom::bindings::conversions::{get_property, get_property_jsval};
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::{DomGlobal, DomObject};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::cssstylevalue::CSSStyleValue;
@@ -49,7 +49,7 @@ use crate::dom::paintsize::PaintSize;
 use crate::dom::stylepropertymapreadonly::StylePropertyMapReadOnly;
 use crate::dom::worklet::WorkletExecutor;
 use crate::dom::workletglobalscope::{WorkletGlobalScope, WorkletGlobalScopeInit, WorkletTask};
-use crate::script_runtime::JSContext;
+use crate::script_runtime::{CanGc, JSContext};
 
 /// <https://drafts.css-houdini.org/css-paint-api/#paintworkletglobalscope>
 #[dom_struct]
@@ -120,7 +120,12 @@ impl PaintWorkletGlobalScope {
                 missing_image_urls: Vec::new(),
             }),
         });
-        unsafe { PaintWorkletGlobalScopeBinding::Wrap(JSContext::from_ptr(runtime.cx()), global) }
+        unsafe {
+            PaintWorkletGlobalScopeBinding::Wrap::<crate::DomTypeHolder>(
+                JSContext::from_ptr(runtime.cx()),
+                global,
+            )
+        }
     }
 
     pub(crate) fn image_cache(&self) -> Arc<dyn ImageCache> {
@@ -150,6 +155,7 @@ impl PaintWorkletGlobalScope {
                     let map = StylePropertyMapReadOnly::from_iter(
                         self.upcast(),
                         properties.iter().cloned(),
+                        CanGc::note(),
                     );
                     let result =
                         self.draw_a_paint_image(&name, size, device_pixel_ratio, &map, &arguments);
@@ -175,6 +181,7 @@ impl PaintWorkletGlobalScope {
                     let map = StylePropertyMapReadOnly::from_iter(
                         self.upcast(),
                         properties.iter().cloned(),
+                        CanGc::note(),
                     );
                     let result =
                         self.draw_a_paint_image(&name, size, device_pixel_ratio, &map, &arguments);
@@ -214,10 +221,12 @@ impl PaintWorkletGlobalScope {
             device_pixel_ratio,
             properties,
             arguments,
+            CanGc::note(),
         )
     }
 
     /// <https://drafts.css-houdini.org/css-paint-api/#invoke-a-paint-callback>
+    #[allow(clippy::too_many_arguments)]
     #[allow(unsafe_code)]
     fn invoke_a_paint_callback(
         &self,
@@ -227,6 +236,7 @@ impl PaintWorkletGlobalScope {
         device_pixel_ratio: Scale<f32, CSSPixel, DevicePixel>,
         properties: &StylePropertyMapReadOnly,
         arguments: &[String],
+        can_gc: CanGc,
     ) -> DrawAPaintImageResult {
         debug!(
             "Invoking a paint callback {}({},{}) at {:?}.",
@@ -301,14 +311,14 @@ impl PaintWorkletGlobalScope {
         rendering_context.set_bitmap_dimensions(size_in_px, device_pixel_ratio);
 
         // Step 9
-        let paint_size = PaintSize::new(self, size_in_px);
+        let paint_size = PaintSize::new(self, size_in_px, can_gc);
 
         // TODO: Step 10
         // Steps 11-12
         debug!("Invoking paint function {}.", name);
         rooted_vec!(let mut arguments_values);
         for argument in arguments {
-            let style_value = CSSStyleValue::new(self.upcast(), argument.clone());
+            let style_value = CSSStyleValue::new(self.upcast(), argument.clone(), can_gc);
             arguments_values.push(ObjectValue(style_value.reflector().get_jsobject().get()));
         }
         let arguments_value_array = HandleValueArray::from(&arguments_values);
@@ -560,7 +570,7 @@ impl PaintWorkletGlobalScopeMethods<crate::DomTypeHolder> for PaintWorkletGlobal
         }
 
         // Step 19.
-        let context = PaintRenderingContext2D::new(self);
+        let context = PaintRenderingContext2D::new(self, CanGc::note());
         let definition = PaintDefinition::new(
             paint_val.handle(),
             paint_function.handle(),

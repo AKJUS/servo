@@ -6,7 +6,7 @@ use canvas_traits::webgl::{TexFormat, WebGLVersion};
 use dom_struct::dom_struct;
 
 use super::{constants as webgl, WebGLExtension, WebGLExtensionSpec, WebGLExtensions};
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::webglrenderingcontext::WebGLRenderingContext;
 use crate::script_runtime::CanGc;
@@ -26,11 +26,11 @@ impl OESTextureFloat {
 
 impl WebGLExtension for OESTextureFloat {
     type Extension = OESTextureFloat;
-    fn new(ctx: &WebGLRenderingContext) -> DomRoot<OESTextureFloat> {
+    fn new(ctx: &WebGLRenderingContext, can_gc: CanGc) -> DomRoot<OESTextureFloat> {
         reflect_dom_object(
             Box::new(OESTextureFloat::new_inherited()),
             &*ctx.global(),
-            CanGc::note(),
+            can_gc,
         )
     }
 

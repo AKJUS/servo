@@ -11,7 +11,7 @@ use crate::dom::bindings::codegen::Bindings::TextTrackBinding::{
     TextTrackKind, TextTrackMethods, TextTrackMode,
 };
 use crate::dom::bindings::error::{Error, ErrorResult};
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::eventtarget::EventTarget;
@@ -54,6 +54,7 @@ impl TextTrack {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         window: &Window,
         id: DOMString,
@@ -62,19 +63,20 @@ impl TextTrack {
         language: DOMString,
         mode: TextTrackMode,
         track_list: Option<&TextTrackList>,
+        can_gc: CanGc,
     ) -> DomRoot<TextTrack> {
         reflect_dom_object(
             Box::new(TextTrack::new_inherited(
                 id, kind, label, language, mode, track_list,
             )),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 
     pub(crate) fn get_cues(&self) -> DomRoot<TextTrackCueList> {
         self.cue_list
-            .or_init(|| TextTrackCueList::new(self.global().as_window(), &[]))
+            .or_init(|| TextTrackCueList::new(self.global().as_window(), &[], CanGc::note()))
     }
 
     pub(crate) fn id(&self) -> &str {
@@ -133,7 +135,11 @@ impl TextTrackMethods<crate::DomTypeHolder> for TextTrack {
     fn GetActiveCues(&self) -> Option<DomRoot<TextTrackCueList>> {
         // XXX implement active cues logic
         //      https://github.com/servo/servo/issues/22314
-        Some(TextTrackCueList::new(self.global().as_window(), &[]))
+        Some(TextTrackCueList::new(
+            self.global().as_window(),
+            &[],
+            CanGc::note(),
+        ))
     }
 
     // https://html.spec.whatwg.org/multipage/#dom-texttrack-addcue

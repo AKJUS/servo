@@ -26,7 +26,7 @@ use crate::dom::bindings::conversions::jsstring_to_str;
 use crate::dom::bindings::error;
 use crate::dom::bindings::error::Fallible;
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object_with_proto, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object_with_proto, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::dommatrix::DOMMatrix;
@@ -776,7 +776,7 @@ impl DOMMatrixReadOnlyMethods<crate::DomTypeHolder> for DOMMatrixReadOnly {
     }
 
     // https://drafts.fxtf.org/geometry-1/#dom-dommatrixreadonly-tofloat32array
-    fn ToFloat32Array(&self, cx: JSContext) -> Float32Array {
+    fn ToFloat32Array(&self, cx: JSContext, can_gc: CanGc) -> Float32Array {
         let vec: Vec<f32> = self
             .matrix
             .borrow()
@@ -785,15 +785,20 @@ impl DOMMatrixReadOnlyMethods<crate::DomTypeHolder> for DOMMatrixReadOnly {
             .map(|&x| x as f32)
             .collect();
         rooted!(in (*cx) let mut array = ptr::null_mut::<JSObject>());
-        create_buffer_source(cx, &vec, array.handle_mut())
+        create_buffer_source(cx, &vec, array.handle_mut(), can_gc)
             .expect("Converting matrix to float32 array should never fail")
     }
 
     // https://drafts.fxtf.org/geometry-1/#dom-dommatrixreadonly-tofloat64array
-    fn ToFloat64Array(&self, cx: JSContext) -> Float64Array {
+    fn ToFloat64Array(&self, cx: JSContext, can_gc: CanGc) -> Float64Array {
         rooted!(in (*cx) let mut array = ptr::null_mut::<JSObject>());
-        create_buffer_source(cx, &self.matrix.borrow().to_array(), array.handle_mut())
-            .expect("Converting matrix to float64 array should never fail")
+        create_buffer_source(
+            cx,
+            &self.matrix.borrow().to_array(),
+            array.handle_mut(),
+            can_gc,
+        )
+        .expect("Converting matrix to float64 array should never fail")
     }
 
     // https://drafts.fxtf.org/geometry/#dommatrixreadonly-stringification-behavior

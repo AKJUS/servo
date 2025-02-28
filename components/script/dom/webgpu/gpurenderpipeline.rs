@@ -10,7 +10,7 @@ use webgpu::{WebGPU, WebGPUBindGroupLayout, WebGPURenderPipeline, WebGPURequest,
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::WebGPUBinding::GPURenderPipelineMethods;
 use crate::dom::bindings::error::Fallible;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::USVString;
 use crate::dom::globalscope::GlobalScope;
@@ -50,6 +50,7 @@ impl GPURenderPipeline {
         render_pipeline: WebGPURenderPipeline,
         label: USVString,
         device: &GPUDevice,
+        can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
             Box::new(GPURenderPipeline::new_inherited(
@@ -58,7 +59,7 @@ impl GPURenderPipeline {
                 device,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -126,6 +127,7 @@ impl GPURenderPipelineMethods<crate::DomTypeHolder> for GPURenderPipeline {
             self.channel.clone(),
             WebGPUBindGroupLayout(id),
             USVString::default(),
+            CanGc::note(),
         ))
     }
 }

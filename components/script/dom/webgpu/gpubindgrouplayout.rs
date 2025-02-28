@@ -14,7 +14,7 @@ use crate::dom::bindings::codegen::Bindings::WebGPUBinding::{
     GPUBindGroupLayoutDescriptor, GPUBindGroupLayoutMethods,
 };
 use crate::dom::bindings::error::Fallible;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::USVString;
 use crate::dom::globalscope::GlobalScope;
@@ -52,6 +52,7 @@ impl GPUBindGroupLayout {
         channel: WebGPU,
         bind_group_layout: WebGPUBindGroupLayout,
         label: USVString,
+        can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
             Box::new(GPUBindGroupLayout::new_inherited(
@@ -60,7 +61,7 @@ impl GPUBindGroupLayout {
                 label,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -74,6 +75,7 @@ impl GPUBindGroupLayout {
     pub(crate) fn create(
         device: &GPUDevice,
         descriptor: &GPUBindGroupLayoutDescriptor,
+        can_gc: CanGc,
     ) -> Fallible<DomRoot<GPUBindGroupLayout>> {
         let entries = descriptor
             .entries
@@ -110,6 +112,7 @@ impl GPUBindGroupLayout {
             device.channel().clone(),
             bgl,
             descriptor.parent.label.clone(),
+            can_gc,
         ))
     }
 }

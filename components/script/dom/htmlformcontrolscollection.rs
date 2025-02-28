@@ -10,7 +10,7 @@ use crate::dom::bindings::codegen::Bindings::HTMLFormControlsCollectionBinding::
 use crate::dom::bindings::codegen::Bindings::NodeBinding::{GetRootNodeOptions, NodeMethods};
 use crate::dom::bindings::codegen::UnionTypes::RadioNodeListOrElement;
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::element::Element;
@@ -45,11 +45,12 @@ impl HTMLFormControlsCollection {
         window: &Window,
         form: &HTMLFormElement,
         filter: Box<dyn CollectionFilter + 'static>,
+        can_gc: CanGc,
     ) -> DomRoot<HTMLFormControlsCollection> {
         reflect_dom_object(
             Box::new(HTMLFormControlsCollection::new_inherited(form, filter)),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -94,7 +95,12 @@ impl HTMLFormControlsCollectionMethods<crate::DomTypeHolder> for HTMLFormControl
                 // specifically HTMLFormElement::Elements(),
                 // and the collection filter excludes image inputs.
                 Some(RadioNodeListOrElement::RadioNodeList(
-                    RadioNodeList::new_controls_except_image_inputs(window, &self.form, &name),
+                    RadioNodeList::new_controls_except_image_inputs(
+                        window,
+                        &self.form,
+                        &name,
+                        CanGc::note(),
+                    ),
                 ))
             }
         // Step 3

@@ -6,7 +6,9 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::ptr::NonNull;
+use std::str::FromStr;
 use std::{f64, ptr};
 
 use dom_struct::dom_struct;
@@ -24,16 +26,16 @@ use net_traits::blob_url_store::get_blob_origin;
 use net_traits::filemanager_thread::FileManagerThreadMsg;
 use net_traits::{CoreResourceMsg, IpcSend};
 use profile_traits::ipc;
-use script_traits::ScriptToConstellationChan;
 use servo_atoms::Atom;
 use style::attr::AttrValue;
 use style::str::{split_commas, str_join};
 use style_dom::ElementState;
-use time_03::{Month, OffsetDateTime, Time};
+use time::{Month, OffsetDateTime, Time};
 use unicode_bidi::{bidi_class, BidiClass};
 use url::Url;
 
 use super::bindings::str::{FromInputValueString, ToInputValueString};
+use crate::clipboard_provider::EmbedderClipboardProvider;
 use crate::dom::activation::Activatable;
 use crate::dom::attr::Attr;
 use crate::dom::bindings::cell::DomRefCell;
@@ -45,7 +47,7 @@ use crate::dom::bindings::codegen::Bindings::HTMLInputElementBinding::HTMLInputE
 use crate::dom::bindings::codegen::Bindings::NodeBinding::{GetRootNodeOptions, NodeMethods};
 use crate::dom::bindings::error::{Error, ErrorResult};
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{DomRoot, LayoutDom, MutNullableDom};
 use crate::dom::bindings::str::{DOMString, USVString};
 use crate::dom::clipboardevent::ClipboardEvent;
@@ -299,7 +301,7 @@ pub(crate) struct HTMLInputElement {
     minlength: Cell<i32>,
     #[ignore_malloc_size_of = "TextInput contains an IPCSender which cannot be measured"]
     #[no_trace]
-    textinput: DomRefCell<TextInput<ScriptToConstellationChan>>,
+    textinput: DomRefCell<TextInput<EmbedderClipboardProvider>>,
     // https://html.spec.whatwg.org/multipage/#concept-input-value-dirty-flag
     value_dirty: Cell<bool>,
     // not specified explicitly, but implied by the fact that sanitization can't
@@ -334,7 +336,7 @@ impl HTMLInputElement {
         prefix: Option<Prefix>,
         document: &Document,
     ) -> HTMLInputElement {
-        let chan = document
+        let constellation_sender = document
             .window()
             .as_global_scope()
             .script_to_constellation_chan()
@@ -355,7 +357,10 @@ impl HTMLInputElement {
             textinput: DomRefCell::new(TextInput::new(
                 Single,
                 DOMString::new(),
-                chan,
+                EmbedderClipboardProvider {
+                    constellation_sender,
+                    webview_id: document.webview_id(),
+                },
                 None,
                 None,
                 SelectionDirection::None,
@@ -832,10 +837,7 @@ impl HTMLInputElement {
             },
             // https://html.spec.whatwg.org/multipage/#file-upload-state-(type%3Dfile)%3Asuffering-from-being-missing
             InputType::File => {
-                self.Required() &&
-                    self.filelist
-                        .get()
-                        .map_or(true, |files| files.Length() == 0)
+                self.Required() && self.filelist.get().is_none_or(|files| files.Length() == 0)
             },
             // https://html.spec.whatwg.org/multipage/#the-required-attribute%3Asuffering-from-being-missing
             _ => {
@@ -1321,7 +1323,7 @@ impl HTMLInputElementMethods<crate::DomTypeHolder> for HTMLInputElement {
             ValueMode::Filename => {
                 if value.is_empty() {
                     let window = self.owner_window();
-                    let fl = FileList::new(&window, vec![]);
+                    let fl = FileList::new(&window, vec![], can_gc);
                     self.filelist.set(Some(&fl));
                 } else {
                     return Err(Error::InvalidState);
@@ -1556,6 +1558,7 @@ impl HTMLInputElementMethods<crate::DomTypeHolder> for HTMLInputElement {
                 NodeList::new_labels_list(
                     self.upcast::<Node>().owner_doc().window(),
                     self.upcast::<HTMLElement>(),
+                    CanGc::note(),
                 )
             }))
         }
@@ -1897,16 +1900,22 @@ impl HTMLInputElement {
         let mut files: Vec<DomRoot<File>> = vec![];
         let mut error = None;
 
+        let webview_id = window.webview_id();
         let filter = filter_from_accept(&self.Accept());
         let target = self.upcast::<EventTarget>();
 
         if self.Multiple() {
-            let opt_test_paths =
-                opt_test_paths.map(|paths| paths.iter().map(|p| p.to_string()).collect());
+            let opt_test_paths = opt_test_paths.map(|paths| {
+                paths
+                    .iter()
+                    .filter_map(|p| PathBuf::from_str(p).ok())
+                    .collect()
+            });
 
             let (chan, recv) = ipc::channel(self.global().time_profiler_chan().clone())
                 .expect("Error initializing channel");
-            let msg = FileManagerThreadMsg::SelectFiles(filter, chan, origin, opt_test_paths);
+            let msg =
+                FileManagerThreadMsg::SelectFiles(webview_id, filter, chan, origin, opt_test_paths);
             resource_threads
                 .send(CoreResourceMsg::ToFileManager(msg))
                 .unwrap();
@@ -1925,7 +1934,7 @@ impl HTMLInputElement {
                     if paths.is_empty() {
                         return;
                     } else {
-                        Some(paths[0].to_string()) // neglect other paths
+                        Some(PathBuf::from(paths[0].to_string())) // neglect other paths
                     }
                 },
                 None => None,
@@ -1933,7 +1942,8 @@ impl HTMLInputElement {
 
             let (chan, recv) = ipc::channel(self.global().time_profiler_chan().clone())
                 .expect("Error initializing channel");
-            let msg = FileManagerThreadMsg::SelectFile(filter, chan, origin, opt_test_path);
+            let msg =
+                FileManagerThreadMsg::SelectFile(webview_id, filter, chan, origin, opt_test_path);
             resource_threads
                 .send(CoreResourceMsg::ToFileManager(msg))
                 .unwrap();
@@ -1949,7 +1959,7 @@ impl HTMLInputElement {
         if let Some(err) = error {
             debug!("Input file select error: {:?}", err);
         } else {
-            let filelist = FileList::new(&window, files);
+            let filelist = FileList::new(&window, files, can_gc);
             self.filelist.set(Some(&filelist));
 
             target.fire_bubbling_event(atom!("input"), can_gc);
@@ -2368,7 +2378,7 @@ impl VirtualMethods for HTMLInputElement {
 
                         if new_type == InputType::File {
                             let window = self.owner_window();
-                            let filelist = FileList::new(&window, vec![]);
+                            let filelist = FileList::new(&window, vec![], CanGc::note());
                             self.filelist.set(Some(&filelist));
                         }
 
@@ -2640,14 +2650,18 @@ impl VirtualMethods for HTMLInputElement {
             event.type_() == atom!("compositionend")) &&
             self.input_type().is_textual_or_password()
         {
-            // TODO: Update DOM on start and continue
-            // and generally do proper CompositionEvent handling.
             if let Some(compositionevent) = event.downcast::<CompositionEvent>() {
                 if event.type_() == atom!("compositionend") {
                     let _ = self
                         .textinput
                         .borrow_mut()
                         .handle_compositionend(compositionevent);
+                    self.upcast::<Node>().dirty(NodeDamage::OtherNodeDamage);
+                } else if event.type_() == atom!("compositionupdate") {
+                    let _ = self
+                        .textinput
+                        .borrow_mut()
+                        .handle_compositionupdate(compositionevent);
                     self.upcast::<Node>().dirty(NodeDamage::OtherNodeDamage);
                 }
                 event.mark_as_handled();
@@ -2706,7 +2720,7 @@ impl Validatable for HTMLInputElement {
 
     fn validity_state(&self) -> DomRoot<ValidityState> {
         self.validity_state
-            .or_init(|| ValidityState::new(&self.owner_window(), self.upcast()))
+            .or_init(|| ValidityState::new(&self.owner_window(), self.upcast(), CanGc::note()))
     }
 
     fn is_instance_validatable(&self) -> bool {
@@ -2942,6 +2956,7 @@ impl Activatable for HTMLInputElement {
 fn filter_from_accept(s: &DOMString) -> Vec<FilterPattern> {
     let mut filter = vec![];
     for p in split_commas(s) {
+        let p = p.trim();
         if let Some('.') = p.chars().next() {
             filter.push(FilterPattern(p[1..].to_string()));
         } else if let Some(exts) = mime_guess::get_mime_extensions_str(p) {

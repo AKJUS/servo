@@ -35,9 +35,9 @@ mod devtools;
 pub(crate) mod document_loader;
 #[macro_use]
 mod dom;
+mod canvas_context;
 mod canvas_state;
 pub(crate) mod fetch;
-mod image_listener;
 mod init;
 mod layout_image;
 
@@ -68,7 +68,6 @@ pub mod test;
 #[allow(dead_code)]
 pub mod textinput;
 mod timers;
-mod unpremultiplytable;
 mod webdriver_handlers;
 mod window_named_properties;
 

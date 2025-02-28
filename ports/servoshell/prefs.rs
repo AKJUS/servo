@@ -14,10 +14,12 @@ use log::{error, warn};
 use serde_json::Value;
 use servo::config::opts::{DebugOptions, Opts, OutputOptions};
 use servo::config::prefs::{PrefValue, Preferences};
-use servo::url::ServoUrl;
+use servo::servo_geometry::DeviceIndependentPixel;
+use servo::servo_url::ServoUrl;
 use url::Url;
 
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), allow(dead_code))]
+#[derive(Clone)]
 pub(crate) struct ServoShellPreferences {
     /// The user agent to use for servoshell.
     pub user_agent: Option<String>,
@@ -34,18 +36,42 @@ pub(crate) struct ServoShellPreferences {
     /// URL string of the search engine page with '%s' standing in for the search term.
     /// For example <https://duckduckgo.com/html/?q=%s>.
     pub searchpage: String,
+    /// Whether or not to run servoshell in headless mode. While running in headless
+    /// mode, image output is supported.
+    pub headless: bool,
+    /// Filter directives for our tracing implementation.
+    ///
+    /// Overrides directives specified via `SERVO_TRACING` if set.
+    /// See: <https://docs.rs/tracing-subscriber/0.3.19/tracing_subscriber/filter/struct.EnvFilter.html#directives>
+    pub tracing_filter: Option<String>,
+    /// The initial requested size of the window.
+    pub initial_window_size: Size2D<u32, DeviceIndependentPixel>,
+    /// An override for the screen resolution. This is useful for testing behavior on different screen sizes,
+    /// such as the screen of a mobile device.
+    pub screen_size_override: Option<Size2D<u32, DeviceIndependentPixel>>,
+    /// If not-None, the path to a file to output the default WebView's rendered output
+    /// after waiting for a stable image, this implies `Self::exit_after_load`.
+    pub output_image_path: Option<String>,
+    /// Whether or not to exit after Servo detects a stable output image in all WebViews.
+    pub exit_after_stable_image: bool,
 }
 
 impl Default for ServoShellPreferences {
     fn default() -> Self {
         Self {
-            user_agent: None,
-            url: None,
-            device_pixel_ratio_override: None,
             clean_shutdown: false,
+            device_pixel_ratio_override: None,
+            headless: false,
             homepage: "https://servo.org".into(),
+            initial_window_size: Size2D::new(1024, 740),
             no_native_titlebar: true,
+            screen_size_override: None,
             searchpage: "https://duckduckgo.com/html/?q=%s".into(),
+            tracing_filter: None,
+            url: None,
+            user_agent: None,
+            output_image_path: None,
+            exit_after_stable_image: false,
         }
     }
 }
@@ -150,7 +176,13 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
 
     let mut opts = Options::new();
     opts.optflag("", "legacy-layout", "Use the legacy layout engine");
-    opts.optopt("o", "output", "Output file", "output.png");
+    opts.optopt(
+        "o",
+        "output",
+        "Path to an output image. The format of the image is determined by the extension. \
+         Supports all formats that `rust-image` does.",
+        "output.png",
+    );
     opts.optopt("s", "size", "Size of tiles", "512");
     opts.optflagopt(
         "p",
@@ -172,7 +204,11 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
         "Memory profiler flag and output interval",
         "10",
     );
-    opts.optflag("x", "exit", "Exit after load flag");
+    opts.optflag(
+        "x",
+        "exit",
+        "Exit after Servo has loaded the page and detected a stable output image",
+    );
     opts.optopt(
         "y",
         "layout-threads",
@@ -309,6 +345,13 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
     );
     opts.optmulti(
         "",
+        "tracing-filter",
+        "Define a custom filter for traces. Overrides `SERVO_TRACING` if set.",
+        "FILTER",
+    );
+
+    opts.optmulti(
+        "",
         "pref",
         "A preference to set to enable",
         "dom.bluetooth.enabled",
@@ -349,6 +392,13 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
     if let Some(content_process) = opt_match.opt_str("content-process") {
         return ArgumentParsingResult::ContentProcess(content_process);
     }
+    // Env-Filter directives are comma seperated.
+    let filters = opt_match.opt_strs("tracing-filter").join(",");
+    let tracing_filter = if filters.is_empty() {
+        None
+    } else {
+        Some(filters)
+    };
 
     let mut debug_options = DebugOptions::default();
     for debug_string in opt_match.opt_strs("Z") {
@@ -468,7 +518,6 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
         .map_or(default_window_size, |screen_size_override| {
             default_window_size.min(screen_size_override)
         });
-
     let initial_window_size = opt_match
         .opt_str("window-size")
         .map_or(default_window_size, parse_resolution_string);
@@ -515,8 +564,8 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
     });
 
     // If an output file is specified the device pixel ratio is always 1.
-    let output_file = opt_match.opt_str("o");
-    if output_file.is_some() {
+    let output_image_path = opt_match.opt_str("o");
+    if output_image_path.is_some() {
         device_pixel_ratio_override = Some(1.0);
     }
 
@@ -533,23 +582,31 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
         preferences.js_ion_enabled = false;
     }
 
+    let exit_after_load = opt_match.opt_present("x") || output_image_path.is_some();
+    let wait_for_stable_image = exit_after_load;
     let servoshell_preferences = ServoShellPreferences {
         user_agent: opt_match.opt_str("u"),
         url,
         no_native_titlebar,
         device_pixel_ratio_override,
         clean_shutdown: opt_match.opt_present("clean-shutdown"),
+        headless: opt_match.opt_present("z"),
+        tracing_filter,
+        initial_window_size,
+        screen_size_override,
+        output_image_path,
+        exit_after_stable_image: exit_after_load,
         ..Default::default()
     };
 
-    let headless = opt_match.opt_present("z");
-    if headless && preferences.media_glvideo_enabled {
+    if servoshell_preferences.headless && preferences.media_glvideo_enabled {
         warn!("GL video rendering is not supported on headless windows.");
         preferences.media_glvideo_enabled = false;
     }
 
     let opts = Opts {
         debug: debug_options.clone(),
+        wait_for_stable_image,
         legacy_layout,
         time_profiling,
         time_profiler_trace_path: opt_match.opt_str("profiler-trace-path"),
@@ -557,18 +614,13 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
         nonincremental_layout,
         userscripts: opt_match.opt_default("userscripts", ""),
         user_stylesheets,
-        output_file,
-        headless,
         hard_fail: opt_match.opt_present("f") && !opt_match.opt_present("F"),
         webdriver_port,
-        initial_window_size,
-        screen_size_override,
         multiprocess: opt_match.opt_present("M"),
         background_hang_monitor: opt_match.opt_present("B"),
         sandbox: opt_match.opt_present("S"),
         random_pipeline_closure_probability,
         random_pipeline_closure_seed,
-        exit_after_load: opt_match.opt_present("x"),
         config_dir,
         shaders_dir: opt_match.opt_str("shaders").map(Into::into),
         certificate_path: opt_match.opt_str("certificate-path"),
@@ -644,10 +696,6 @@ fn print_debug_options_usage(app: &str) {
     print_option("dump-style-stats", "Print style statistics each restyle.");
     print_option("gc-profile", "Log GC passes and their durations.");
     print_option(
-        "load-webfonts-synchronously",
-        "Load web fonts synchronously to avoid non-deterministic network-driven reflows",
-    );
-    print_option(
         "parallel-display-list-building",
         "Build display lists in parallel.",
     );
@@ -659,7 +707,6 @@ fn print_debug_options_usage(app: &str) {
         "relayout-event",
         "Print notifications when there is a relayout.",
     );
-    print_option("replace-surrogates", "Replace unpaires surrogates in DOM strings with U+FFFD. See https://github.com/servo/servo/issues/6564");
     print_option(
         "show-fragment-borders",
         "Paint borders along fragment boundaries.",

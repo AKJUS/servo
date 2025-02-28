@@ -14,7 +14,7 @@ use style::stylesheets::{CssRuleType, Origin, StyleRule};
 
 use crate::dom::bindings::codegen::Bindings::CSSStyleRuleBinding::CSSStyleRuleMethods;
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::cssrule::{CSSRule, SpecificCSSRule};
@@ -50,11 +50,12 @@ impl CSSStyleRule {
         window: &Window,
         parent_stylesheet: &CSSStyleSheet,
         stylerule: Arc<Locked<StyleRule>>,
+        can_gc: CanGc,
     ) -> DomRoot<CSSStyleRule> {
         reflect_dom_object(
             Box::new(CSSStyleRule::new_inherited(parent_stylesheet, stylerule)),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -86,6 +87,7 @@ impl CSSStyleRuleMethods<crate::DomTypeHolder> for CSSStyleRule {
                 ),
                 None,
                 CSSModificationAccess::ReadWrite,
+                CanGc::note(),
             )
         })
     }

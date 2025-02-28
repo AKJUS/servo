@@ -51,7 +51,7 @@ use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::num::Finite;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::biquadfilternode::BiquadFilterNode;
 use crate::dom::channelmergernode::ChannelMergerNode;
@@ -211,8 +211,8 @@ impl BaseAudioContext {
         f();
         for promise in &*promises {
             match result {
-                Ok(ref value) => promise.resolve_native(value),
-                Err(ref error) => promise.reject_error(error.clone()),
+                Ok(ref value) => promise.resolve_native(value, CanGc::note()),
+                Err(ref error) => promise.reject_error(error.clone(), CanGc::note()),
             }
         }
     }
@@ -292,13 +292,13 @@ impl BaseAudioContextMethods<crate::DomTypeHolder> for BaseAudioContext {
 
         // Step 2.
         if self.audio_context_impl.lock().unwrap().state() == ProcessingState::Closed {
-            promise.reject_error(Error::InvalidState);
+            promise.reject_error(Error::InvalidState, can_gc);
             return promise;
         }
 
         // Step 3.
         if self.state.get() == AudioContextState::Running {
-            promise.resolve_native(&());
+            promise.resolve_native(&(), can_gc);
             return promise;
         }
 
@@ -324,7 +324,7 @@ impl BaseAudioContextMethods<crate::DomTypeHolder> for BaseAudioContext {
             options.channelCount = Some(self.channel_count);
             options.channelCountMode = Some(ChannelCountMode::Explicit);
             options.channelInterpretation = Some(ChannelInterpretation::Speakers);
-            AudioDestinationNode::new(&global, self, &options)
+            AudioDestinationNode::new(&global, self, &options, CanGc::note())
         })
     }
 
@@ -549,7 +549,7 @@ impl BaseAudioContextMethods<crate::DomTypeHolder> for BaseAudioContext {
                         if let Some(callback) = resolver.success_callback {
                             let _ = callback.Call__(&buffer, ExceptionHandling::Report);
                         }
-                        resolver.promise.resolve_native(&buffer);
+                        resolver.promise.resolve_native(&buffer, CanGc::note());
                     }));
                 })
                 .error(move |error| {
@@ -560,11 +560,11 @@ impl BaseAudioContextMethods<crate::DomTypeHolder> for BaseAudioContext {
                         let resolver = resolvers.remove(&uuid).unwrap();
                         if let Some(callback) = resolver.error_callback {
                             let _ = callback.Call__(
-                                &DOMException::new(&this.global(), DOMErrorName::DataCloneError),
+                                &DOMException::new(&this.global(), DOMErrorName::DataCloneError, CanGc::note()),
                                 ExceptionHandling::Report);
                         }
                         let error = format!("Audio decode error {:?}", error);
-                        resolver.promise.reject_error(Error::Type(error));
+                        resolver.promise.reject_error(Error::Type(error), CanGc::note());
                     }));
                 })
                 .build();
@@ -574,7 +574,7 @@ impl BaseAudioContextMethods<crate::DomTypeHolder> for BaseAudioContext {
                 .decode_audio_data(audio_data, callbacks);
         } else {
             // Step 3.
-            promise.reject_error(Error::DataClone);
+            promise.reject_error(Error::DataClone, can_gc);
             return promise;
         }
 

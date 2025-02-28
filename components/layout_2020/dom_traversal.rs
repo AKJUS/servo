@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::borrow::Cow;
+use std::iter::FusedIterator;
 
 use html5ever::{local_name, LocalName};
 use log::warn;
@@ -14,10 +15,12 @@ use style::dom::{TElement, TShadowRoot};
 use style::properties::ComputedValues;
 use style::selector_parser::PseudoElement;
 use style::values::generics::counters::{Content, ContentItem};
+use style::values::specified::Quotes;
 
 use crate::context::LayoutContext;
 use crate::dom::{BoxSlot, LayoutBox, NodeExt};
 use crate::fragment_tree::{BaseFragmentInfo, FragmentFlags, Tag};
+use crate::quotes::quotes_for_lang;
 use crate::replaced::ReplacedContents;
 use crate::style_ext::{Display, DisplayGeneratingBox, DisplayInside, DisplayOutside};
 
@@ -393,6 +396,17 @@ where
     })
 }
 
+fn get_quote_from_pair<I, S>(item: &ContentItem<I>, opening: &S, closing: &S) -> String
+where
+    S: ToString + ?Sized,
+{
+    match item {
+        ContentItem::OpenQuote => opening.to_string(),
+        ContentItem::CloseQuote => closing.to_string(),
+        _ => unreachable!("Got an unexpected ContentItem type when processing quotes."),
+    }
+}
+
 /// <https://www.w3.org/TR/CSS2/generate.html#propdef-content>
 fn generate_pseudo_element_content<'dom, Node>(
     pseudo_element_style: &ComputedValues,
@@ -448,10 +462,30 @@ where
                             vec.push(PseudoElementContentItem::Replaced(replaced_content));
                         }
                     },
+                    ContentItem::OpenQuote | ContentItem::CloseQuote => {
+                        // TODO(xiaochengh): calculate quote depth
+                        let maybe_quote = match &pseudo_element_style.get_list().quotes {
+                            Quotes::QuoteList(quote_list) => {
+                                quote_list.0.first().map(|quote_pair| {
+                                    get_quote_from_pair(
+                                        item,
+                                        &*quote_pair.opening,
+                                        &*quote_pair.closing,
+                                    )
+                                })
+                            },
+                            Quotes::Auto => {
+                                let lang = &pseudo_element_style.get_font()._x_lang;
+                                let quotes = quotes_for_lang(lang.0.as_ref(), 0);
+                                Some(get_quote_from_pair(item, &quotes.opening, &quotes.closing))
+                            },
+                        };
+                        if let Some(quote) = maybe_quote {
+                            vec.push(PseudoElementContentItem::Text(quote));
+                        }
+                    },
                     ContentItem::Counter(_, _) |
                     ContentItem::Counters(_, _, _) |
-                    ContentItem::OpenQuote |
-                    ContentItem::CloseQuote |
                     ContentItem::NoOpenQuote |
                     ContentItem::NoCloseQuote => {
                         // TODO: Add support for counters and quotes.
@@ -464,18 +498,49 @@ where
     }
 }
 
-pub(crate) fn iter_child_nodes<'dom, Node>(parent: Node) -> impl Iterator<Item = Node>
+pub enum ChildNodeIterator<Node> {
+    /// Iterating over the children of a node
+    Node(Option<Node>),
+    /// Iterating over the assigned nodes of a `HTMLSlotElement`
+    Slottables(<Vec<Node> as IntoIterator>::IntoIter),
+}
+
+#[allow(clippy::unnecessary_to_owned)] // Clippy is wrong.
+pub(crate) fn iter_child_nodes<'dom, Node>(parent: Node) -> ChildNodeIterator<Node>
 where
     Node: NodeExt<'dom>,
 {
-    if let Some(shadow) = parent.as_element().and_then(|e| e.shadow_root()) {
-        return iter_child_nodes(shadow.as_node());
-    };
+    if let Some(element) = parent.as_element() {
+        if let Some(shadow) = element.shadow_root() {
+            return iter_child_nodes(shadow.as_node());
+        };
 
-    let mut next = parent.first_child();
-    std::iter::from_fn(move || {
-        next.inspect(|child| {
-            next = child.next_sibling();
-        })
-    })
+        let slotted_nodes = element.slotted_nodes();
+        if !slotted_nodes.is_empty() {
+            return ChildNodeIterator::Slottables(slotted_nodes.to_owned().into_iter());
+        }
+    }
+
+    let first = parent.first_child();
+    ChildNodeIterator::Node(first)
 }
+
+impl<'dom, Node> Iterator for ChildNodeIterator<Node>
+where
+    Node: NodeExt<'dom>,
+{
+    type Item = Node;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Node(node) => {
+                let old = *node;
+                *node = old?.next_sibling();
+                old
+            },
+            Self::Slottables(slots) => slots.next(),
+        }
+    }
+}
+
+impl<'dom, Node> FusedIterator for ChildNodeIterator<Node> where Node: NodeExt<'dom> {}

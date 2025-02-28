@@ -13,7 +13,7 @@ use style_traits::{ParsingMode, ToCss};
 
 use crate::dom::bindings::codegen::Bindings::MediaListBinding::MediaListMethods;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::Window_Binding::WindowMethods;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::cssstylesheet::CSSStyleSheet;
@@ -47,11 +47,12 @@ impl MediaList {
         window: &Window,
         parent_stylesheet: &CSSStyleSheet,
         media_queries: Arc<Locked<StyleMediaList>>,
+        can_gc: CanGc,
     ) -> DomRoot<MediaList> {
         reflect_dom_object(
             Box::new(MediaList::new_inherited(parent_stylesheet, media_queries)),
             window,
-            CanGc::note(),
+            can_gc,
         )
     }
 

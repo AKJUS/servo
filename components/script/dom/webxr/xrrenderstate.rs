@@ -11,7 +11,7 @@ use webxr_api::SubImages;
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::XRRenderStateBinding::XRRenderStateMethods;
 use crate::dom::bindings::num::Finite;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::utils::to_frozen_array;
 use crate::dom::globalscope::GlobalScope;
@@ -55,6 +55,7 @@ impl XRRenderState {
         inline_vertical_fov: Option<f64>,
         layer: Option<&XRWebGLLayer>,
         layers: Vec<&XRLayer>,
+        can_gc: CanGc,
     ) -> DomRoot<XRRenderState> {
         reflect_dom_object(
             Box::new(XRRenderState::new_inherited(
@@ -65,7 +66,7 @@ impl XRRenderState {
                 layers,
             )),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 
@@ -77,6 +78,7 @@ impl XRRenderState {
             self.inline_vertical_fov.get(),
             self.base_layer.get().as_deref(),
             self.layers.borrow().iter().map(|x| &**x).collect(),
+            CanGc::note(),
         )
     }
 

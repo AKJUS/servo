@@ -16,7 +16,7 @@ use crate::dom::bindings::codegen::Bindings::WebGPUBinding::{
 };
 use crate::dom::bindings::codegen::UnionTypes::ArrayBufferViewOrArrayBuffer as BufferSource;
 use crate::dom::bindings::error::{Error, Fallible};
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::USVString;
 use crate::dom::globalscope::GlobalScope;
@@ -49,11 +49,16 @@ impl GPUQueue {
         }
     }
 
-    pub(crate) fn new(global: &GlobalScope, channel: WebGPU, queue: WebGPUQueue) -> DomRoot<Self> {
+    pub(crate) fn new(
+        global: &GlobalScope,
+        channel: WebGPU,
+        queue: WebGPUQueue,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
         reflect_dom_object(
             Box::new(GPUQueue::new_inherited(channel, queue)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
@@ -215,15 +220,15 @@ impl AsyncWGPUListener for GPUQueue {
         &self,
         response: webgpu::WebGPUResponse,
         promise: &Rc<Promise>,
-        _can_gc: CanGc,
+        can_gc: CanGc,
     ) {
         match response {
             WebGPUResponse::SubmittedWorkDone => {
-                promise.resolve_native(&());
+                promise.resolve_native(&(), can_gc);
             },
             _ => {
                 warn!("GPUQueue received wrong WebGPUResponse");
-                promise.reject_error(Error::Operation);
+                promise.reject_error(Error::Operation, can_gc);
             },
         }
     }

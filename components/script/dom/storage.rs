@@ -14,7 +14,7 @@ use crate::dom::bindings::codegen::Bindings::StorageBinding::StorageMethods;
 use crate::dom::bindings::error::{Error, ErrorResult};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::event::{Event, EventBubbles, EventCancelable};
@@ -37,11 +37,15 @@ impl Storage {
         }
     }
 
-    pub(crate) fn new(global: &Window, storage_type: StorageType) -> DomRoot<Storage> {
+    pub(crate) fn new(
+        global: &Window,
+        storage_type: StorageType,
+        can_gc: CanGc,
+    ) -> DomRoot<Storage> {
         reflect_dom_object(
             Box::new(Storage::new_inherited(storage_type)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 

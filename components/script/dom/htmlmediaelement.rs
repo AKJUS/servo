@@ -17,10 +17,10 @@ use headers::{ContentLength, ContentRange, HeaderMapExt};
 use html5ever::{local_name, namespace_url, ns, LocalName, Prefix};
 use http::header::{self, HeaderMap, HeaderValue};
 use http::StatusCode;
-use ipc_channel::ipc::{self, IpcSharedMemory};
+use ipc_channel::ipc::{self, channel, IpcSharedMemory};
 use ipc_channel::router::ROUTER;
 use js::jsapi::JSAutoRealm;
-use media::{glplayer_channel, GLPlayerMsg, GLPlayerMsgForward, WindowGLContext};
+use media::{GLPlayerMsg, GLPlayerMsgForward, WindowGLContext};
 use net_traits::request::{Destination, RequestId};
 use net_traits::{
     FetchMetadata, FetchResponseListener, Metadata, NetworkError, ResourceFetchTiming,
@@ -70,7 +70,7 @@ use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::num::Finite;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::DomObject;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::str::{DOMString, USVString};
 use crate::dom::blob::Blob;
@@ -256,6 +256,7 @@ impl VideoFrameRenderer for MediaFrameRenderer {
                         id: ExternalImageId(self.player_id.unwrap()),
                         channel_index: 0,
                         image_type: ExternalImageType::TextureHandle(texture_target),
+                        normalized_uvs: false,
                     })
                 } else {
                     SerializableImageData::Raw(IpcSharedMemory::from_bytes(&frame.get_data()))
@@ -289,6 +290,7 @@ impl VideoFrameRenderer for MediaFrameRenderer {
                         id: ExternalImageId(self.player_id.unwrap()),
                         channel_index: 0,
                         image_type: ExternalImageType::TextureHandle(texture_target),
+                        normalized_uvs: false,
                     })
                 } else {
                     SerializableImageData::Raw(IpcSharedMemory::from_bytes(&frame.get_data()))
@@ -885,11 +887,13 @@ impl HTMLMediaElement {
 
         let cors_setting = cors_setting_for_element(self.upcast());
         let request = create_a_potential_cors_request(
+            Some(document.webview_id()),
             url.clone(),
             destination,
             cors_setting,
             None,
             self.global().get_referrer(),
+            document.insecure_requests_policy(),
         )
         .headers(headers)
         .origin(document.origin().immutable().clone())
@@ -1010,8 +1014,7 @@ impl HTMLMediaElement {
                     // Step 1.
                     this.error.set(Some(&*MediaError::new(
                         &this.owner_window(),
-                        MEDIA_ERR_SRC_NOT_SUPPORTED,
-                    )));
+                        MEDIA_ERR_SRC_NOT_SUPPORTED, CanGc::note())));
 
                     // Step 2.
                     this.AudioTracks().clear();
@@ -1216,8 +1219,8 @@ impl HTMLMediaElement {
         f();
         for promise in &*promises {
             match result {
-                Ok(ref value) => promise.resolve_native(value),
-                Err(ref error) => promise.reject_error(error.clone()),
+                Ok(ref value) => promise.resolve_native(value, CanGc::note()),
+                Err(ref error) => promise.reject_error(error.clone(), CanGc::note()),
             }
         }
     }
@@ -1395,12 +1398,10 @@ impl HTMLMediaElement {
         // GLPlayer thread setup
         let (player_id, image_receiver) = window
             .get_player_context()
-            .glplayer_chan
+            .glplayer_thread_sender
             .map(|pipeline| {
-                let (image_sender, image_receiver) =
-                    glplayer_channel::<GLPlayerMsgForward>().unwrap();
+                let (image_sender, image_receiver) = channel().unwrap();
                 pipeline
-                    .channel()
                     .send(GLPlayerMsg::RegisterPlayer(image_sender))
                     .unwrap();
                 match image_receiver.recv().unwrap() {
@@ -1421,7 +1422,7 @@ impl HTMLMediaElement {
                 .media_element_task_source()
                 .to_sendable();
             ROUTER.add_typed_route(
-                image_receiver.to_ipc_receiver(),
+                image_receiver,
                 Box::new(move |message| {
                     let msg = message.unwrap();
                     let this = trusted_node.clone();
@@ -1560,6 +1561,7 @@ impl HTMLMediaElement {
                 self.error.set(Some(&*MediaError::new(
                     &self.owner_window(),
                     MEDIA_ERR_DECODE,
+                    can_gc,
                 )));
 
                 // 3. Set the element's networkState attribute to the NETWORK_IDLE value.
@@ -1599,6 +1601,7 @@ impl HTMLMediaElement {
                             DOMString::new(),
                             DOMString::new(),
                             Some(&*self.AudioTracks()),
+                            can_gc,
                         );
 
                         // Steps 2. & 3.
@@ -1658,6 +1661,7 @@ impl HTMLMediaElement {
                             DOMString::new(),
                             DOMString::new(),
                             Some(&*self.VideoTracks()),
+                            can_gc,
                         );
 
                         // Steps 2. & 3.
@@ -1895,6 +1899,7 @@ impl HTMLMediaElement {
                 ShadowRootMode::Closed,
                 false,
                 SlotAssignmentMode::Manual,
+                can_gc,
             )
             .unwrap();
         let document = self.owner_document();
@@ -2047,14 +2052,8 @@ impl HTMLMediaElement {
 
 impl Drop for HTMLMediaElement {
     fn drop(&mut self) {
-        if let Some(ref pipeline) = self.player_context.glplayer_chan {
-            if let Err(err) = pipeline
-                .channel()
-                .send(GLPlayerMsg::UnregisterPlayer(self.id.get()))
-            {
-                warn!("GLPlayer disappeared!: {:?}", err);
-            }
-        }
+        self.player_context
+            .send(GLPlayerMsg::UnregisterPlayer(self.id.get()));
     }
 }
 
@@ -2196,7 +2195,7 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
             .get()
             .is_some_and(|e| e.Code() == MEDIA_ERR_SRC_NOT_SUPPORTED)
         {
-            promise.reject_error(Error::NotSupported);
+            promise.reject_error(Error::NotSupported, can_gc);
             return promise;
         }
 
@@ -2384,7 +2383,11 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#dom-media-played
     fn Played(&self) -> DomRoot<TimeRanges> {
-        TimeRanges::new(self.global().as_window(), self.played.borrow().clone())
+        TimeRanges::new(
+            self.global().as_window(),
+            self.played.borrow().clone(),
+            CanGc::note(),
+        )
     }
 
     // https://html.spec.whatwg.org/multipage/#dom-media-buffered
@@ -2397,28 +2400,28 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
                 }
             }
         }
-        TimeRanges::new(self.global().as_window(), buffered)
+        TimeRanges::new(self.global().as_window(), buffered, CanGc::note())
     }
 
     // https://html.spec.whatwg.org/multipage/#dom-media-audiotracks
     fn AudioTracks(&self) -> DomRoot<AudioTrackList> {
         let window = self.owner_window();
         self.audio_tracks_list
-            .or_init(|| AudioTrackList::new(&window, &[], Some(self)))
+            .or_init(|| AudioTrackList::new(&window, &[], Some(self), CanGc::note()))
     }
 
     // https://html.spec.whatwg.org/multipage/#dom-media-videotracks
     fn VideoTracks(&self) -> DomRoot<VideoTrackList> {
         let window = self.owner_window();
         self.video_tracks_list
-            .or_init(|| VideoTrackList::new(&window, &[], Some(self)))
+            .or_init(|| VideoTrackList::new(&window, &[], Some(self), CanGc::note()))
     }
 
     // https://html.spec.whatwg.org/multipage/#dom-media-texttracks
     fn TextTracks(&self) -> DomRoot<TextTrackList> {
         let window = self.owner_window();
         self.text_tracks_list
-            .or_init(|| TextTrackList::new(&window, &[]))
+            .or_init(|| TextTrackList::new(&window, &[], CanGc::note()))
     }
 
     // https://html.spec.whatwg.org/multipage/#dom-media-addtexttrack
@@ -2439,6 +2442,7 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
             language,
             TextTrackMode::Hidden,
             None,
+            CanGc::note(),
         );
         // Step 3 & 4
         self.TextTracks().add(&track);
@@ -2859,6 +2863,7 @@ impl FetchResponseListener for HTMLMediaElementFetchListener {
             elem.error.set(Some(&*MediaError::new(
                 &elem.owner_window(),
                 MEDIA_ERR_NETWORK,
+                CanGc::note(),
             )));
 
             // Step 3

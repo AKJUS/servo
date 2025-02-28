@@ -11,7 +11,7 @@ use webrender_traits::CrossProcessCompositorMessage;
 
 use crate::dom::bindings::codegen::Bindings::ScreenBinding::ScreenMethods;
 use crate::dom::bindings::num::Finite;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::window::Window;
 use crate::script_runtime::CanGc;
@@ -30,12 +30,8 @@ impl Screen {
         }
     }
 
-    pub(crate) fn new(window: &Window) -> DomRoot<Screen> {
-        reflect_dom_object(
-            Box::new(Screen::new_inherited(window)),
-            window,
-            CanGc::note(),
-        )
+    pub(crate) fn new(window: &Window, can_gc: CanGc) -> DomRoot<Screen> {
+        reflect_dom_object(Box::new(Screen::new_inherited(window)), window, can_gc)
     }
 
     fn screen_size(&self) -> Size2D<u32, CSSPixel> {

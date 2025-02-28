@@ -7,7 +7,7 @@ use js::rust::MutableHandleValue;
 
 use crate::dom::bindings::codegen::Bindings::XRBoundedReferenceSpaceBinding::XRBoundedReferenceSpaceMethods;
 use crate::dom::bindings::codegen::Bindings::XRReferenceSpaceBinding::XRReferenceSpaceType;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::utils::to_frozen_array;
 use crate::dom::dompointreadonly::DOMPointReadOnly;
@@ -45,7 +45,7 @@ impl XRBoundedReferenceSpace {
         can_gc: CanGc,
     ) -> DomRoot<XRBoundedReferenceSpace> {
         let offset = XRRigidTransform::identity(global, can_gc);
-        Self::new_offset(global, session, &offset)
+        Self::new_offset(global, session, &offset, can_gc)
     }
 
     #[allow(unused)]
@@ -53,11 +53,12 @@ impl XRBoundedReferenceSpace {
         global: &GlobalScope,
         session: &XRSession,
         offset: &XRRigidTransform,
+        can_gc: CanGc,
     ) -> DomRoot<XRBoundedReferenceSpace> {
         reflect_dom_object(
             Box::new(XRBoundedReferenceSpace::new_inherited(session, offset)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 

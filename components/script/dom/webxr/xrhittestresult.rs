@@ -6,7 +6,7 @@ use dom_struct::dom_struct;
 use webxr_api::HitTestResult;
 
 use crate::dom::bindings::codegen::Bindings::XRHitTestResultBinding::XRHitTestResultMethods;
-use crate::dom::bindings::reflector::{reflect_dom_object, DomObject, Reflector};
+use crate::dom::bindings::reflector::{reflect_dom_object, DomGlobal, Reflector};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::xrframe::XRFrame;
@@ -36,11 +36,12 @@ impl XRHitTestResult {
         global: &GlobalScope,
         result: HitTestResult,
         frame: &XRFrame,
+        can_gc: CanGc,
     ) -> DomRoot<XRHitTestResult> {
         reflect_dom_object(
             Box::new(XRHitTestResult::new_inherited(result, frame)),
             global,
-            CanGc::note(),
+            can_gc,
         )
     }
 }
