@@ -14661,8 +14661,22 @@
       {}
      ]
     ],
+    "xpath-absolute-path-should-escape-starting-node.html": [
+     "c80574b4413ea3302a8df211845140ba585d0a98",
+     [
+      null,
+      {}
+     ]
+    ],
     "xpath-result-out-parameter.html": [
      "e4206aba44d2c4f6d299d9860d80b5f736094789",
+     [
+      null,
+      {}
+     ]
+    ],
+    "xpath-reuse-result-iterator.html": [
+     "5f97115a82dba24ae4ca807b1e60ee93b3a526ea",
      [
       null,
       {}
